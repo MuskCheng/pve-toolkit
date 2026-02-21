@@ -15,7 +15,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/network)
 [![GitHub license](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/blob/master/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Proxmox%20VE%209.x-blue)](#)
-[![Version](https://img.shields.io/badge/Version-V0.33-green)](#)
+[![Version](https://img.shields.io/badge/Version-V0.34-green)](#)
 
 </div>
 

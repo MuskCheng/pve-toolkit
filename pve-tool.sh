@@ -876,10 +876,13 @@ fix_docker_source() {
     echo -e "${YELLOW}常见问题: 阿里云 Docker 源不支持 Debian 13 (Trixie)${NC}"
     echo ""
     echo -e "${YELLOW}当前 Docker 源配置:${NC}"
-    ls -la /etc/apt/sources.list.d/ | grep -i docker
+    ls -la /etc/apt/sources.list.d/ | grep -i docker 2>/dev/null || echo "无 Docker 源配置"
     echo ""
     echo -e "${CYAN}[1]${NC} 移除 Docker CE 源 (使用系统自带 docker.io)"
-    echo -e "${CYAN}[2]${NC} 添加 Docker 官方源"
+    echo -e "${CYAN}[2]${NC} Docker 官方源 (国外)"
+    echo -e "${CYAN}[3]${NC} 中科大 Docker 源 (推荐国内)"
+    echo -e "${CYAN}[4]${NC} 阿里云 Docker 源"
+    echo -e "${CYAN}[5]${NC} 清华 Docker 源"
     echo -e "${CYAN}[0]${NC} 返回"
     echo -ne "${CYAN}选择: ${NC}"
     read fix_choice
@@ -890,6 +893,7 @@ fix_docker_source() {
             echo -e "${YELLOW}移除 Docker CE 源...${NC}"
             rm -f /etc/apt/sources.list.d/docker*.list 2>/dev/null
             rm -f /etc/apt/sources.list.d/*.docker* 2>/dev/null
+            rm -f /etc/apt/keyrings/docker.gpg 2>/dev/null
             echo -e "${GREEN}已移除 Docker CE 源${NC}"
             echo -e "${GREEN}现在可以使用系统自带的 docker.io${NC}"
             apt update
@@ -902,6 +906,36 @@ fix_docker_source() {
             curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
             echo -e "${GREEN}Docker 官方源添加完成${NC}"
+            apt update
+            pause_func
+            ;;
+        3)
+            echo -e "${YELLOW}添加中科大 Docker 源...${NC}"
+            apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            echo -e "${GREEN}中科大 Docker 源添加完成${NC}"
+            apt update
+            pause_func
+            ;;
+        4)
+            echo -e "${YELLOW}添加阿里云 Docker 源...${NC}"
+            apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            echo -e "${GREEN}阿里云 Docker 源添加完成${NC}"
+            apt update
+            pause_func
+            ;;
+        5)
+            echo -e "${YELLOW}添加清华 Docker 源...${NC}"
+            apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            echo -e "${GREEN}清华 Docker 源添加完成${NC}"
             apt update
             pause_func
             ;;
