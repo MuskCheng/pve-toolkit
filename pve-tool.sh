@@ -1,22 +1,19 @@
 #!/bin/bash
 #
 # PVE Toolkit - Proxmox VE 管理工具集
-# 版本: V0.22
+# 版本: V0.26
 # 使用方法: curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash
 
-set -e
-
-VERSION="V0.25"
+VERSION="V0.26"
 
 # 检测管道执行并自动保存
 if [[ ! -t 0 ]] && [[ -z "$PVE_TOOL_SAVED" ]]; then
     echo "[INFO] 检测到管道执行，正在保存脚本..."
-    SCRIPT_PATH="/tmp/pve-tool-$(date +%s).sh"
+    SCRIPT_PATH="/tmp/pve-tool-$$-$(date +%s).sh"
     cat > "$SCRIPT_PATH"
     chmod +x "$SCRIPT_PATH"
     echo "[INFO] 脚本已保存到: $SCRIPT_PATH"
-    echo "[INFO] 请使用以下命令运行:"
-    echo "    bash $SCRIPT_PATH"
+    echo "[INFO] 请运行: bash $SCRIPT_PATH"
     exec bash "$SCRIPT_PATH"
 fi
 
@@ -38,17 +35,12 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_err() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
-log_ask() { echo -e "${YELLOW}[询问]${NC} $1"; }
 
 # 询问确认
 ask_confirm() {
     local prompt="$1"
     echo -ne "${YELLOW}$prompt (y/N): ${NC}"
-    if [[ -t 0 ]]; then
-        read -r confirm
-    else
-        read -r confirm || confirm="n"
-    fi
+    read -r confirm
     [[ "$confirm" =~ ^[Yy]$ ]]
 }
 
@@ -89,7 +81,6 @@ check_pve_version() {
 BACKUP_DIR="/var/lib/vz/dump"
 BACKUP_RETENTION_DAYS=7
 BACKUP_COMPRESS="zstd"
-MONITOR_INTERVAL=60
 ALERT_THRESHOLD_CPU=90
 ALERT_THRESHOLD_MEM=90
 ALERT_THRESHOLD_DISK=85
@@ -112,12 +103,7 @@ backup_list() {
 backup_create() {
     local vmid="$1"
     local mode="${2:-snapshot}"
-    
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定 VM/LXC ID${NC}"
-        return 1
-    fi
-    
+    [[ -z "$vmid" ]] && { echo -e "${RED}错误: 请指定 VM/LXC ID${NC}"; return 1; }
     echo -e "${GREEN}正在备份 $vmid (模式: $mode)...${NC}"
     vzdump "$vmid" --mode "$mode" --compress "$BACKUP_COMPRESS" --storage local
 }
@@ -130,44 +116,17 @@ backup_cleanup() {
 }
 
 backup_restore() {
-    local backup_file="$1"
-    local vmid="$2"
-    
-    if [[ -z "$backup_file" ]] || [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定备份文件和目标 VM ID${NC}"
-        return 1
-    fi
-    
-    if [[ ! -f "$backup_file" ]]; then
-        echo -e "${RED}错误: 备份文件不存在: $backup_file${NC}"
-        return 1
-    fi
+    local backup_file="$1" vmid="$2"
+    [[ -z "$backup_file" || -z "$vmid" ]] && { echo -e "${RED}错误: 请指定备份文件和目标 VM ID${NC}"; return 1; }
+    [[ ! -f "$backup_file" ]] && { echo -e "${RED}错误: 备份文件不存在: $backup_file${NC}"; return 1; }
     
     local restore_cmd=""
-    if [[ "$backup_file" == *.vma.zst ]]; then
-        restore_cmd="qmrestore"
-    elif [[ "$backup_file" == *.tar.zst ]]; then
-        restore_cmd="pctrestore"
-    else
-        echo -e "${RED}错误: 未知的备份文件格式${NC}"
-        return 1
-    fi
+    [[ "$backup_file" == *.vma.zst ]] && restore_cmd="qmrestore" || [[ "$backup_file" == *.tar.zst ]] && restore_cmd="pctrestore"
+    [[ -z "$restore_cmd" ]] && { echo -e "${RED}错误: 未知的备份文件格式${NC}"; return 1; }
     
     if ask_confirm "警告: 这将覆盖现有的 VM/LXC $vmid，是否继续？"; then
-        if [[ "$restore_cmd" == "qmrestore" ]]; then
-            qmrestore "$backup_file" "$vmid" --storage local
-        else
-            pctrestore "$vmid" "$backup_file" --storage local
-        fi
+        [[ "$restore_cmd" == "qmrestore" ]] && qmrestore "$backup_file" "$vmid" --storage local || pctrestore "$vmid" "$backup_file" --storage local
     fi
-}
-
-backup_help() {
-    echo -e "${BLUE}备份管理命令:${NC}"
-    echo "  --list              列出所有备份"
-    echo "  --create <ID>       创建备份"
-    echo "  --cleanup           清理旧备份"
-    echo "  --restore <file> <ID> 恢复备份"
 }
 
 backup_main() {
@@ -176,8 +135,8 @@ backup_main() {
         --create|-c) backup_create "$2" "$3" ;;
         --cleanup) backup_cleanup ;;
         --restore|-r) backup_restore "$2" "$3" ;;
-        --help|-h) backup_help ;;
-        *) echo -e "${RED}错误: 未知备份命令${NC}"; backup_help; return 1 ;;
+        --help|-h) echo -e "${BLUE}备份命令: --list, --create <ID>, --cleanup, --restore <file> <ID>${NC}" ;;
+        *) echo -e "${RED}错误: 未知备份命令${NC}"; return 1 ;;
     esac
 }
 
@@ -187,11 +146,8 @@ backup_interactive() {
         echo -e "${BLUE}═══════════════════════════════════════${NC}"
         echo -e "${BOLD}            备份管理${NC}"
         echo -e "${BLUE}═══════════════════════════════════════${NC}"
-        echo ""
-        echo -e "  ${GREEN}[1]${NC} 列出所有备份"
-        echo -e "  ${GREEN}[2]${NC} 创建备份"
-        echo -e "  ${GREEN}[3]${NC} 清理旧备份"
-        echo -e "  ${GREEN}[4]${NC} 恢复备份"
+        echo -e "  ${GREEN}[1]${NC} 列出所有备份  ${GREEN}[2]${NC} 创建备份"
+        echo -e "  ${GREEN}[3]${NC} 清理旧备份    ${GREEN}[4]${NC} 恢复备份"
         echo -e "  ${GREEN}[0]${NC} 返回主菜单"
         echo ""
         echo -ne "${CYAN}请选择 [0-4]: ${NC}"
@@ -199,23 +155,13 @@ backup_interactive() {
         
         case "$choice" in
             1) backup_list ;;
-            2)
-                echo -ne "请输入 VM/LXC ID: "; read -r vmid
-                echo -ne "备份模式 (snapshot/suspend/stop) [snapshot]: "; read -r mode
-                backup_create "$vmid" "${mode:-snapshot}"
-                ;;
+            2) echo -ne "请输入 VM/LXC ID: "; read -r vmid; backup_create "$vmid" ;;
             3) backup_cleanup ;;
-            4)
-                backup_list
-                echo -ne "请输入备份文件路径: "; read -r backup_file
-                echo -ne "请输入目标 VM ID: "; read -r vmid
-                backup_restore "$backup_file" "$vmid"
-                ;;
+            4) backup_list; echo -ne "备份文件路径: "; read -r f; echo -ne "目标 VM ID: "; read -r id; backup_restore "$f" "$id" ;;
             0) return 0 ;;
             *) echo -e "${RED}无效选择${NC}" ;;
         esac
-        
-        echo ""; echo -ne "${YELLOW}按回车键继续...${NC}"; read -r
+        [[ "$choice" != "0" ]] && { echo ""; echo -ne "${YELLOW}按回车继续...${NC}"; read -r; }
     done
 }
 
@@ -223,101 +169,32 @@ backup_interactive() {
 
 monitor_status() {
     echo -e "${BLUE}=== PVE 系统状态 ===${NC}"
+    echo -e "${GREEN}主机:${NC} $(hostname) | PVE: $(pveversion 2>/dev/null | grep -oP 'pve-manager/\K[0-9.]+' || echo 'N/A')"
+    echo -e "${GREEN}内核:${NC} $(uname -r)"
     echo ""
-    echo -e "${GREEN}主机信息:${NC}"
-    echo "  主机名: $(hostname)"
-    echo "  PVE 版本: $(pveversion 2>/dev/null || echo 'N/A')"
-    echo "  内核版本: $(uname -r)"
+    echo -e "${GREEN}CPU: ${NC}$(nproc) 核心 | 使用率: $(top -bn1 2>/dev/null | grep "Cpu" | awk '{print $2}' | cut -d'%' -f1 || echo 'N/A')%"
+    echo -e "${GREEN}内存:${NC} $(free -h | awk 'NR==2{printf "%s / %s (%.1f%%)", $3, $2, $3*100/$2}')"
+    echo -e "${GREEN}磁盘:${NC} $(df -h / | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')"
     echo ""
-    
-    local cpu_usage
-    if command -v mpstat &>/dev/null; then
-        cpu_usage=$(mpstat 1 1 | awk 'END {print 100 - $NF}')
-    else
-        cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 || echo "N/A")
-    fi
-    echo -e "${GREEN}CPU:${NC}"
-    echo "  使用率: ${cpu_usage}%"
-    echo "  核心数: $(nproc)"
-    echo ""
-    
-    echo -e "${GREEN}内存:${NC}"
-    free -h | awk 'NR==2{printf "  已用: %s / %s (%.1f%%)\n", $3, $2, $3*100/$2}'
-    echo ""
-    
-    echo -e "${GREEN}磁盘:${NC}"
-    df -h | grep -E "^/dev/" | awk '{printf "  %s: %s / %s (%s)\n", $1, $3, $2, $5}'
-    echo ""
-    
-    echo -e "${GREEN}虚拟机/容器:${NC}"
-    echo "  运行中 VM: $(qm list 2>/dev/null | grep running | wc -l || echo 0)"
-    echo "  运行中 LXC: $(pct list 2>/dev/null | grep running | wc -l || echo 0)"
+    echo -e "${GREEN}运行中: ${NC}VM: $(qm list 2>/dev/null | grep running | wc -l) | LXC: $(pct list 2>/dev/null | grep running | wc -l)"
 }
 
-monitor_vm() {
-    echo -e "${BLUE}=== 虚拟机状态 ===${NC}"
-    qm list 2>/dev/null || echo "无法获取 VM 列表"
-}
-
-monitor_lxc() {
-    echo -e "${BLUE}=== LXC 容器状态 ===${NC}"
-    pct list 2>/dev/null || echo "无法获取 LXC 列表"
-}
+monitor_vm() { echo -e "${BLUE}=== 虚拟机状态 ===${NC}"; qm list 2>/dev/null || echo "无法获取"; }
+monitor_lxc() { echo -e "${BLUE}=== LXC 容器状态 ===${NC}"; pct list 2>/dev/null || echo "无法获取"; }
 
 monitor_resources() {
-    echo -e "${BLUE}=== 资源使用详情 ===${NC}"
-    echo ""
+    echo -e "${BLUE}=== 资源阈值检查 ===${NC}"
+    local cpu=$(top -bn1 2>/dev/null | grep "Cpu" | awk '{print int($2)}' || echo 0)
+    local mem=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+    local disk=$(df / | awk 'NR==2{print $5}' | tr -d '%')
     
-    local cpu_usage=0
-    if command -v mpstat &>/dev/null; then
-        cpu_usage=$(mpstat 1 1 | awk 'END {print int(100 - $NF)}')
-    else
-        cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 | cut -d'.' -f1 || echo 0)
-    fi
-    if [[ "$cpu_usage" =~ ^[0-9]+$ ]] && [[ "$cpu_usage" -gt "$ALERT_THRESHOLD_CPU" ]]; then
-        echo -e "${RED}⚠ CPU 使用率超过阈值: ${cpu_usage}% > ${ALERT_THRESHOLD_CPU}%${NC}"
-    else
-        echo -e "${GREEN}✓ CPU 使用率正常: ${cpu_usage}%${NC}"
-    fi
-    
-    local mem_usage=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
-    if [[ "$mem_usage" -gt "$ALERT_THRESHOLD_MEM" ]]; then
-        echo -e "${RED}⚠ 内存使用率超过阈值: ${mem_usage}% > ${ALERT_THRESHOLD_MEM}%${NC}"
-    else
-        echo -e "${GREEN}✓ 内存使用率正常: ${mem_usage}%${NC}"
-    fi
-    
-    local disk_usage=$(df / | awk 'NR==2{print $5}' | tr -d '%')
-    if [[ "$disk_usage" -gt "$ALERT_THRESHOLD_DISK" ]]; then
-        echo -e "${RED}⚠ 磁盘使用率超过阈值: ${disk_usage}% > ${ALERT_THRESHOLD_DISK}%${NC}"
-    else
-        echo -e "${GREEN}✓ 磁盘使用率正常: ${disk_usage}%${NC}"
-    fi
+    [[ $cpu -gt $ALERT_THRESHOLD_CPU ]] && echo -e "${RED}⚠ CPU: ${cpu}%${NC}" || echo -e "${GREEN}✓ CPU: ${cpu}%${NC}"
+    [[ $mem -gt $ALERT_THRESHOLD_MEM ]] && echo -e "${RED}⚠ 内存: ${mem}%${NC}" || echo -e "${GREEN}✓ 内存: ${mem}%${NC}"
+    [[ $disk -gt $ALERT_THRESHOLD_DISK ]] && echo -e "${RED}⚠ 磁盘: ${disk}%${NC}" || echo -e "${GREEN}✓ 磁盘: ${disk}%${NC}"
 }
 
-monitor_network() {
-    echo -e "${BLUE}=== 网络状态 ===${NC}"
-    ip -brief addr 2>/dev/null || echo "无法获取网络信息"
-    echo ""
-    echo -e "${GREEN}网络流量:${NC}"
-    cat /proc/net/dev | grep -E "vmbr|eth|enp" | awk '{printf "  %s: 接收 %s / 发送 %s\n", $1, $2, $10}' 2>/dev/null || true
-}
-
-monitor_logs() {
-    local lines="${1:-50}"
-    echo -e "${BLUE}=== 最近 $lines 条系统日志 ===${NC}"
-    journalctl -n "$lines" --no-pager 2>/dev/null || echo "无法获取日志"
-}
-
-monitor_help() {
-    echo -e "${BLUE}监控命令:${NC}"
-    echo "  --status       显示系统状态概览"
-    echo "  --vm           显示虚拟机状态"
-    echo "  --lxc          显示 LXC 容器状态"
-    echo "  --resources    检查资源使用阈值"
-    echo "  --network      显示网络状态"
-    echo "  --logs [N]     显示最近 N 条日志 (默认 50)"
-}
+monitor_network() { echo -e "${BLUE}=== 网络状态 ===${NC}"; ip -brief addr 2>/dev/null || ip addr; }
+monitor_logs() { echo -e "${BLUE}=== 系统日志 ===${NC}"; journalctl -n "${1:-50}" --no-pager 2>/dev/null || echo "无法获取日志"; }
 
 monitor_main() {
     case "${1:-}" in
@@ -327,8 +204,8 @@ monitor_main() {
         --resources|-r) monitor_resources ;;
         --network|-n) monitor_network ;;
         --logs|-l) monitor_logs "$2" ;;
-        --help|-h) monitor_help ;;
-        *) echo -e "${RED}错误: 未知监控命令${NC}"; monitor_help; return 1 ;;
+        --help|-h) echo -e "${BLUE}监控命令: --status, --vm, --lxc, --resources, --network, --logs [N]${NC}" ;;
+        *) echo -e "${RED}错误: 未知监控命令${NC}"; return 1 ;;
     esac
 }
 
@@ -338,13 +215,8 @@ monitor_interactive() {
         echo -e "${BLUE}═══════════════════════════════════════${NC}"
         echo -e "${BOLD}            系统监控${NC}"
         echo -e "${BLUE}═══════════════════════════════════════${NC}"
-        echo ""
-        echo -e "  ${GREEN}[1]${NC} 系统状态概览"
-        echo -e "  ${GREEN}[2]${NC} 虚拟机状态"
-        echo -e "  ${GREEN}[3]${NC} LXC 容器状态"
-        echo -e "  ${GREEN}[4]${NC} 资源阈值检查"
-        echo -e "  ${GREEN}[5]${NC} 网络状态"
-        echo -e "  ${GREEN}[6]${NC} 系统日志"
+        echo -e "  ${GREEN}[1]${NC} 系统状态    ${GREEN}[2]${NC} VM状态    ${GREEN}[3]${NC} LXC状态"
+        echo -e "  ${GREEN}[4]${NC} 资源检查    ${GREEN}[5]${NC} 网络状态 ${GREEN}[6]${NC} 系统日志"
         echo -e "  ${GREEN}[0]${NC} 返回主菜单"
         echo ""
         echo -ne "${CYAN}请选择 [0-6]: ${NC}"
@@ -356,206 +228,68 @@ monitor_interactive() {
             3) monitor_lxc ;;
             4) monitor_resources ;;
             5) monitor_network ;;
-            6)
-                echo -ne "显示日志条数 [50]: "; read -r lines
-                monitor_logs "${lines:-50}"
-                ;;
+            6) echo -ne "日志条数 [50]: "; read -r n; monitor_logs "${n:-50}" ;;
             0) return 0 ;;
             *) echo -e "${RED}无效选择${NC}" ;;
         esac
-        
-        echo ""; echo -ne "${YELLOW}按回车键继续...${NC}"; read -r
+        [[ "$choice" != "0" ]] && { echo ""; echo -ne "${YELLOW}按回车继续...${NC}"; read -r; }
     done
 }
 
 # ========== LXC 管理模块 ==========
 
-lxc_list() {
-    echo -e "${BLUE}=== LXC 容器列表 ===${NC}"
-    pct list 2>/dev/null || echo "无法获取 LXC 列表"
-}
+lxc_list() { echo -e "${BLUE}=== LXC 容器列表 ===${NC}"; pct list 2>/dev/null || echo "无法获取"; }
 
 lxc_create() {
-    local vmid="$1"
-    local hostname="$2"
-    local memory="${3:-$LXC_DEFAULT_MEMORY}"
-    local cores="${4:-$LXC_DEFAULT_CORES}"
-    local disk="${5:-$LXC_DEFAULT_DISK}"
-    
-    if [[ -z "$vmid" ]] || [[ -z "$hostname" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID 和主机名${NC}"
-        echo "用法: $0 lxc --create <ID> <主机名> [内存] [核心数] [磁盘大小]"
-        return 1
-    fi
-    
-    echo -e "${GREEN}创建 LXC 容器 $vmid...${NC}"
-    echo "  主机名: $hostname"
-    echo "  内存: ${memory}MB"
-    echo "  核心数: $cores"
-    echo "  磁盘: ${disk}GB"
-    
+    local vmid="$1" hostname="$2" memory="${3:-$LXC_DEFAULT_MEMORY}" cores="${4:-$LXC_DEFAULT_CORES}" disk="${5:-$LXC_DEFAULT_DISK}"
+    [[ -z "$vmid" || -z "$hostname" ]] && { echo -e "${RED}错误: 需要 ID 和主机名${NC}"; return 1; }
+    echo -e "${GREEN}创建 LXC $vmid ($hostname) 内存:$memory 核心:$cores 磁盘:${disk}GB${NC}"
     pct create "$vmid" "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst" \
-        --hostname "$hostname" \
-        --memory "$memory" \
-        --cores "$cores" \
-        --rootfs "local:${disk}" \
-        --net0 "name=eth0,bridge=vmbr0,ip=dhcp" \
-        --unprivileged 0 \
-        --features "nesting=1,keyctl=1" \
-        --start 1
-    
-    if [[ $? -eq 0 ]]; then
-        echo -e "${GREEN}容器 $vmid 创建成功并已启动${NC}"
-    else
-        echo -e "${RED}容器创建失败${NC}"
-        return 1
-    fi
+        --hostname "$hostname" --memory "$memory" --cores "$cores" --rootfs "local:${disk}" \
+        --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features "nesting=1,keyctl=1" --start 1 \
+        && echo -e "${GREEN}创建成功${NC}" || echo -e "${RED}创建失败${NC}"
 }
 
-lxc_start() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    pct start "$vmid"
-    echo -e "${GREEN}容器 $vmid 已启动${NC}"
-}
-
-lxc_stop() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    pct stop "$vmid"
-    echo -e "${GREEN}容器 $vmid 已停止${NC}"
-}
-
-lxc_restart() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    pct restart "$vmid"
-    echo -e "${GREEN}容器 $vmid 已重启${NC}"
-}
+lxc_start() { [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }; pct start "$1"; echo -e "${GREEN}已启动${NC}"; }
+lxc_stop() { [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }; pct stop "$1"; echo -e "${GREEN}已停止${NC}"; }
+lxc_restart() { [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }; pct restart "$1"; echo -e "${GREEN}已重启${NC}"; }
 
 lxc_delete() {
-    local vmid="$1"
-    local force="$2"
-    
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    
-    if [[ "$force" == "-f" ]] || [[ "$force" == "--force" ]]; then
-        pct stop "$vmid" 2>/dev/null || true
-        pct destroy "$vmid"
-        echo -e "${GREEN}容器 $vmid 已删除${NC}"
-    else
-        if ask_confirm "警告: 这将删除容器 $vmid 及其所有数据，是否继续？"; then
-            pct stop "$vmid" 2>/dev/null || true
-            pct destroy "$vmid"
-            echo -e "${GREEN}容器 $vmid 已删除${NC}"
-        fi
+    [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }
+    if [[ "$2" == "-f" ]] || ask_confirm "警告: 删除容器 $1 及其数据，是否继续？"; then
+        pct stop "$1" 2>/dev/null || true; pct destroy "$1"; echo -e "${GREEN}已删除${NC}"
     fi
 }
 
-lxc_console() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    pct enter "$vmid"
-}
-
-lxc_info() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    echo -e "${BLUE}=== 容器 $vmid 详情 ===${NC}"
-    pct config "$vmid" 2>/dev/null || echo "无法获取容器信息"
-}
+lxc_console() { [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }; pct enter "$1"; }
+lxc_info() { [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }; echo -e "${BLUE}=== 容器 $1 详情 ===${NC}"; pct config "$1" 2>/dev/null; }
 
 lxc_install_docker() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    
-    echo -e "${GREEN}正在为容器 $vmid 安装 Docker...${NC}"
-    
-    pct exec "$vmid" -- bash -c '
+    [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }
+    echo -e "${GREEN}正在安装 Docker...${NC}"
+    pct exec "$1" -- bash -c '
         apt update && apt install -y curl ca-certificates gnupg lsb-release
-        
         CODENAME=$(lsb_release -cs)
         mkdir -p /etc/apt/keyrings
-        
         if curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null; then
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" > /etc/apt/sources.list.d/docker.list
-            if apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null; then
-                DOCKER_OK=1
-            fi
+            apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || apt install -y docker.io
+        else
+            apt install -y docker.io
         fi
-        
-        if [[ "$DOCKER_OK" != "1" ]]; then
-            rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.gpg
-            apt install -y docker.io 2>/dev/null || true
-        fi
-        
-        systemctl enable docker 2>/dev/null || systemctl enable docker.io 2>/dev/null || true
-        systemctl start docker 2>/dev/null || systemctl start docker.io 2>/dev/null || true
+        systemctl enable docker 2>/dev/null; systemctl start docker 2>/dev/null
     '
-    
-    if [[ $? -eq 0 ]]; then
-        pct exec "$vmid" -- bash -c "mkdir -p /etc/docker && echo '{\"registry-mirrors\":[\"https://docker.m.daocloud.io\",\"https://hub.rat.dev\"]}' > /etc/docker/daemon.json"
-        pct exec "$vmid" -- bash -c "systemctl restart docker 2>/dev/null || systemctl restart docker.io 2>/dev/null || true"
-        echo -e "${GREEN}Docker 安装完成${NC}"
-        pct exec "$vmid" -- docker --version 2>/dev/null || pct exec "$vmid" -- docker.io --version 2>/dev/null
-    else
-        echo -e "${RED}Docker 安装失败${NC}"
-        return 1
-    fi
+    pct exec "$1" -- bash -c "mkdir -p /etc/docker && echo '{\"registry-mirrors\":[\"https://docker.m.daocloud.io\"]}' > /etc/docker/daemon.json"
+    pct exec "$1" -- systemctl restart docker 2>/dev/null || true
+    echo -e "${GREEN}Docker 安装完成${NC}"
+    pct exec "$1" -- docker --version 2>/dev/null || pct exec "$1" -- docker.io --version 2>/dev/null
 }
 
-lxc_install_docker_compose() {
-    local vmid="$1"
-    if [[ -z "$vmid" ]]; then
-        echo -e "${RED}错误: 请指定容器 ID${NC}"
-        return 1
-    fi
-    
-    echo -e "${GREEN}正在为容器 $vmid 安装 Docker Compose...${NC}"
-    pct exec "$vmid" -- bash -c "apt update && apt install -y python3-pip && pip3 install docker-compose --break-system-packages" 2>/dev/null
-    
-    if [[ $? -eq 0 ]]; then
-        echo -e "${GREEN}Docker Compose 安装完成${NC}"
-        pct exec "$vmid" -- docker-compose --version 2>/dev/null
-    else
-        echo -e "${RED}Docker Compose 安装失败${NC}"
-        return 1
-    fi
-}
-
-lxc_help() {
-    echo -e "${BLUE}LXC 容器管理命令:${NC}"
-    echo "  --list                     列出所有容器"
-    echo "  --create <ID> <名称> [内存] [核心] [磁盘]  创建新容器"
-    echo "  --start <ID>               启动容器"
-    echo "  --stop <ID>                停止容器"
-    echo "  --restart <ID>             重启容器"
-    echo "  --delete <ID> [-f]        删除容器"
-    echo "  --console <ID>            进入容器控制台"
-    echo "  --install-docker <ID>     安装 Docker"
-    echo "  --install-compose <ID>    安装 Docker Compose"
-    echo "  --info <ID>               显示容器详情"
+lxc_install_compose() {
+    [[ -z "$1" ]] && { echo -e "${RED}错误: 需要 ID${NC}"; return 1; }
+    echo -e "${GREEN}安装 Docker Compose...${NC}"
+    pct exec "$1" -- bash -c "apt update && apt install -y python3-pip && pip3 install docker-compose --break-system-packages" 2>/dev/null \
+        && echo -e "${GREEN}完成${NC}" || echo -e "${RED}失败${NC}"
 }
 
 lxc_main() {
@@ -567,11 +301,11 @@ lxc_main() {
         --restart) lxc_restart "$2" ;;
         --delete|-d) lxc_delete "$2" "$3" ;;
         --console) lxc_console "$2" ;;
-        --install-docker) lxc_install_docker "$2" ;;
-        --install-compose) lxc_install_docker_compose "$2" ;;
         --info|-i) lxc_info "$2" ;;
-        --help|-h) lxc_help ;;
-        *) echo -e "${RED}错误: 未知 LXC 命令${NC}"; lxc_help; return 1 ;;
+        --install-docker) lxc_install_docker "$2" ;;
+        --install-compose) lxc_install_compose "$2" ;;
+        --help|-h) echo -e "${BLUE}LXC命令: --list, --create, --start, --stop, --restart, --delete, --console, --info, --install-docker, --install-compose${NC}" ;;
+        *) echo -e "${RED}错误: 未知命令${NC}"; return 1 ;;
     esac
 }
 
@@ -581,108 +315,51 @@ lxc_interactive() {
         echo -e "${WHITE}═══════════════════════════════════════${NC}"
         echo -e "${BOLD}          LXC 容器管理${NC}"
         echo -e "${WHITE}═══════════════════════════════════════${NC}"
+        echo -e "  ${GREEN}[1]${NC} 列表    ${GREEN}[2]${NC} 创建    ${GREEN}[3]${NC} 启动"
+        echo -e "  ${GREEN}[4]${NC} 停止    ${GREEN}[5]${NC} 重启    ${GREEN}[6]${NC} 删除"
+        echo -e "  ${GREEN}[7]${NC} Docker  ${GREEN}[8]${NC} Compose ${GREEN}[9]${NC} 详情"
+        echo -e "  ${GREEN}[0]${NC} 返回"
         echo ""
-        echo -e "  ${GREEN}[1]${NC} 列出所有容器"
-        echo -e "  ${GREEN}[2]${NC} 创建容器"
-        echo -e "  ${GREEN}[3]${NC} 启动容器"
-        echo -e "  ${GREEN}[4]${NC} 停止容器"
-        echo -e "  ${GREEN}[5]${NC} 重启容器"
-        echo -e "  ${GREEN}[6]${NC} 删除容器"
-        echo -e "  ${GREEN}[7]${NC} 安装 Docker"
-        echo -e "  ${GREEN}[8]${NC} 安装 Docker Compose"
-        echo -e "  ${GREEN}[9]${NC} 容器详情"
-        echo -e "  ${GREEN}[0]${NC} 返回主菜单"
-        echo ""
-        echo -ne "${WHITE}请选择 [0-9]: ${NC}"
+        echo -ne "${CYAN}请选择 [0-9]: ${NC}"
         read -r choice
         
         case "$choice" in
             1) lxc_list ;;
-            2)
-                echo -ne "请输入容器 ID: "; read -r vmid
-                echo -ne "请输入主机名: "; read -r hostname
-                echo -ne "内存 (MB) [2048]: "; read -r memory
-                echo -ne "核心数 [2]: "; read -r cores
-                echo -ne "磁盘大小 (GB) [20]: "; read -r disk
-                lxc_create "$vmid" "$hostname" "${memory:-2048}" "${cores:-2}" "${disk:-20}"
-                ;;
-            3)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_start "$vmid"
-                ;;
-            4)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_stop "$vmid"
-                ;;
-            5)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_restart "$vmid"
-                ;;
-            6)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_delete "$vmid"
-                ;;
-            7)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_install_docker "$vmid"
-                ;;
-            8)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_install_docker_compose "$vmid"
-                ;;
-            9)
-                lxc_list
-                echo -ne "请输入容器 ID: "; read -r vmid
-                lxc_info "$vmid"
-                ;;
+            2) echo -ne "ID: "; read -r id; echo -ne "主机名: "; read -r hn; lxc_create "$id" "$hn" ;;
+            3) lxc_list; echo -ne "ID: "; read -r id; lxc_start "$id" ;;
+            4) lxc_list; echo -ne "ID: "; read -r id; lxc_stop "$id" ;;
+            5) lxc_list; echo -ne "ID: "; read -r id; lxc_restart "$id" ;;
+            6) lxc_list; echo -ne "ID: "; read -r id; lxc_delete "$id" ;;
+            7) lxc_list; echo -ne "ID: "; read -r id; lxc_install_docker "$id" ;;
+            8) lxc_list; echo -ne "ID: "; read -r id; lxc_install_compose "$id" ;;
+            9) lxc_list; echo -ne "ID: "; read -r id; lxc_info "$id" ;;
             0) return 0 ;;
             *) echo -e "${RED}无效选择${NC}" ;;
         esac
-        
-        echo ""; echo -ne "${YELLOW}按回车键继续...${NC}"; read -r
+        [[ "$choice" != "0" ]] && { echo ""; echo -ne "${YELLOW}按回车继续...${NC}"; read -r; }
     done
 }
 
 # ========== 系统管理模块 ==========
 
-get_debian_codename() {
-    grep -oP '\(\K[^)]+' /etc/os-release 2>/dev/null || echo "bookworm"
-}
+get_debian_codename() { grep -oP '\(\K[^)]+' /etc/os-release 2>/dev/null || echo "bookworm"; }
 
 system_show_sources() {
-    echo -e "${BLUE}=== APT 镜像源配置 ===${NC}"
-    echo ""
-    echo -e "${GREEN}Debian 源:${NC}"
-    cat /etc/apt/sources.list 2>/dev/null | grep -v "^#" | grep -v "^$" || echo "无"
-    echo ""
-    echo -e "${GREEN}PVE 源:${NC}"
-    cat /etc/apt/sources.list.d/pve*.list 2>/dev/null | grep -v "^#" | grep -v "^$" || echo "无"
+    echo -e "${BLUE}=== APT 镜像源 ===${NC}"
+    echo -e "${GREEN}Debian:${NC}"; grep -v "^#" /etc/apt/sources.list 2>/dev/null | grep -v "^$" || echo "无"
+    echo -e "${GREEN}PVE:${NC}"; grep -v "^#" /etc/apt/sources.list.d/pve*.list 2>/dev/null | grep -v "^$" || echo "无"
 }
 
 system_set_mirror() {
-    local mirror_name="$1"
-    local mirror_url="$2"
-    local codename=$(get_debian_codename)
-    
-    if ask_confirm "切换镜像源到 ${mirror_name}，是否继续？"; then
-        echo -e "${YELLOW}切换到 ${mirror_name} 镜像源...${NC}"
-        
-        cp /etc/apt/sources.list /etc/apt/sources.list.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
-        
+    local name="$1" url="$2" codename=$(get_debian_codename)
+    if ask_confirm "切换到 $name，是否继续？"; then
+        cp /etc/apt/sources.list /etc/apt/sources.list.bak.$(date +%Y%m%d) 2>/dev/null || true
         cat > /etc/apt/sources.list << EOF
-# ${mirror_name}镜像源
-deb ${mirror_url}/debian/ ${codename} main contrib non-free non-free-firmware
-deb ${mirror_url}/debian/ ${codename}-updates main contrib non-free non-free-firmware
-deb ${mirror_url}/debian-security/ ${codename}-security main contrib non-free non-free-firmware
+deb ${url}/debian/ ${codename} main contrib non-free non-free-firmware
+deb ${url}/debian/ ${codename}-updates main contrib non-free non-free-firmware
+deb ${url}/debian-security/ ${codename}-security main contrib non-free non-free-firmware
 EOF
-        
-        echo -e "${GREEN}镜像源已切换到 ${mirror_name}${NC}"
+        echo -e "${GREEN}已切换到 $name${NC}"
     fi
 }
 
@@ -690,20 +367,14 @@ system_mirror_menu() {
     while true; do
         echo ""
         echo -e "${WHITE}═══════════════════════════════════════${NC}"
-        echo -e "${BOLD}           选择镜像源${NC}"
+        echo -e "${BOLD}       选择镜像源${NC}"
         echo -e "${WHITE}═══════════════════════════════════════${NC}"
+        echo -e "  ${GREEN}[1]${NC} 中科大  ${GREEN}[2]${NC} 清华  ${GREEN}[3]${NC} 阿里云"
+        echo -e "  ${GREEN}[4]${NC} 华为云  ${GREEN}[5]${NC} 腾讯云 ${GREEN}[6]${NC} 网易"
+        echo -e "  ${GREEN}[0]${NC} 返回"
         echo ""
-        echo -e "  ${GREEN}[1]${NC} 中科大镜像"
-        echo -e "  ${GREEN}[2]${NC} 清华大学镜像"
-        echo -e "  ${GREEN}[3]${NC} 阿里云镜像"
-        echo -e "  ${GREEN}[4]${NC} 华为云镜像"
-        echo -e "  ${GREEN}[5]${NC} 腾讯云镜像"
-        echo -e "  ${GREEN}[6]${NC} 网易镜像"
-        echo -e "  ${GREEN}[0]${NC} 返回上级"
-        echo ""
-        echo -ne "${WHITE}请选择 [0-6]: ${NC}"
+        echo -ne "${CYAN}请选择 [0-6]: ${NC}"
         read -r choice
-        
         case "$choice" in
             1) system_set_mirror "中科大" "https://mirrors.ustc.edu.cn" ;;
             2) system_set_mirror "清华大学" "https://mirrors.tuna.tsinghua.edu.cn" ;;
@@ -714,92 +385,43 @@ system_mirror_menu() {
             0) return 0 ;;
             *) echo -e "${RED}无效选择${NC}" ;;
         esac
-        
-        echo ""; echo -ne "${YELLOW}按回车键继续...${NC}"; read -r
+        [[ "$choice" != "0" ]] && { echo ""; echo -ne "${YELLOW}按回车继续...${NC}"; read -r; }
     done
 }
 
 system_disable_enterprise() {
     if [[ -f /etc/apt/sources.list.d/pve-enterprise.list ]]; then
-        if ask_confirm "禁用 PVE 企业源，是否继续？"; then
-            sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
-            echo -e "${GREEN}已禁用 pve-enterprise.list${NC}"
-        fi
+        ask_confirm "禁用 PVE 企业源？" && sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list && echo -e "${GREEN}已禁用${NC}"
     else
-        echo -e "${GREEN}pve-enterprise.list 不存在或已禁用${NC}"
+        echo -e "${GREEN}已禁用或不存在${NC}"
     fi
 }
 
 system_set_pve_community() {
-    if ask_confirm "配置 PVE 社区源（中科大镜像），是否继续？"; then
-        cat > /etc/apt/sources.list.d/pve-no-subscription.list << EOF
-# PVE 社区源 (中科大镜像)
+    ask_confirm "配置 PVE 社区源？" && cat > /etc/apt/sources.list.d/pve-no-subscription.list << 'EOF'
 deb https://mirrors.ustc.edu.cn/proxmox/debian/pve bookworm pve-no-subscription
 EOF
-        echo -e "${GREEN}PVE 社区源已配置${NC}"
-    fi
+    echo -e "${GREEN}已配置${NC}"
 }
 
 system_update() {
-    if ask_confirm "更新系统软件包，是否继续？"; then
-        echo -e "${BLUE}=== 系统更新 ===${NC}"
-        echo -e "${GREEN}更新软件包列表...${NC}"
-        apt update
-        
-        echo ""
-        echo -e "${GREEN}可升级的软件包:${NC}"
-        apt list --upgradable 2>/dev/null | head -20 || true
-        
-        if ask_confirm "是否执行升级？"; then
-            echo -e "${GREEN}执行系统升级...${NC}"
-            apt dist-upgrade -y
-            echo -e "${GREEN}升级完成${NC}"
-        fi
-    fi
+    ask_confirm "更新系统？" || return
+    echo -e "${GREEN}更新软件包...${NC}"
+    apt update && apt list --upgradable 2>/dev/null | head -5
+    ask_confirm "确认升级？" && apt dist-upgrade -y && echo -e "${GREEN}完成${NC}"
 }
 
 system_cleanup() {
-    if ask_confirm "清理系统，是否继续？"; then
-        echo -e "${BLUE}=== 系统清理 ===${NC}"
-        echo -e "${GREEN}清理不需要的软件包...${NC}"
-        apt autoremove -y 2>/dev/null || true
-        apt autoclean 2>/dev/null || true
-        
-        echo -e "${GREEN}清理 APT 缓存...${NC}"
-        apt clean 2>/dev/null || true
-        
-        echo -e "${GREEN}清理日志文件...${NC}"
-        journalctl --vacuum-time="7days" 2>/dev/null || true
-        
-        echo -e "${GREEN}清理完成${NC}"
-    fi
+    ask_confirm "清理系统？" || return
+    apt autoremove -y && apt autoclean && apt clean && journalctl --vacuum-time=7days 2>/dev/null
+    echo -e "${GREEN}清理完成${NC}"
 }
 
 system_info() {
     echo -e "${BLUE}=== PVE 系统信息 ===${NC}"
-    echo ""
-    echo -e "${GREEN}版本信息:${NC}"
-    pveversion -v 2>/dev/null || echo "无法获取版本信息"
-    echo ""
-    echo -e "${GREEN}主机信息:${NC}"
-    echo "  主机名: $(hostname)"
-    echo "  IP 地址: $(hostname -I | awk '{print $1}')"
-    echo "  内核版本: $(uname -r)"
-    echo "  系统运行时间: $(uptime -p 2>/dev/null || uptime)"
-    echo ""
-    echo -e "${GREEN}存储信息:${NC}"
-    pvesm status 2>/dev/null || echo "无法获取存储信息"
-}
-
-system_help() {
-    echo -e "${BLUE}系统管理命令:${NC}"
-    echo "  --sources              显示当前镜像源配置"
-    echo "  --mirror              镜像源选择菜单"
-    echo "  --disable-enterprise   禁用 PVE 企业源"
-    echo "  --pve-community        配置 PVE 社区源"
-    echo "  --update               更新系统"
-    echo "  --cleanup              清理系统"
-    echo "  --info                 显示系统信息"
+    pveversion -v 2>/dev/null || echo "无法获取"
+    echo -e "主机: $(hostname) | IP: $(hostname -I | awk '{print $1}')"
+    echo -e "内核: $(uname -r)"
 }
 
 system_main() {
@@ -811,8 +433,8 @@ system_main() {
         --update|-u) system_update ;;
         --cleanup|-c) system_cleanup ;;
         --info|-i) system_info ;;
-        --help|-h) system_help ;;
-        *) echo -e "${RED}错误: 未知系统命令${NC}"; system_help; return 1 ;;
+        --help|-h) echo -e "${BLUE}系统命令: --sources, --mirror, --disable-enterprise, --pve-community, --update, --cleanup, --info${NC}" ;;
+        *) echo -e "${RED}错误: 未知命令${NC}"; return 1 ;;
     esac
 }
 
@@ -820,19 +442,14 @@ system_interactive() {
     while true; do
         echo ""
         echo -e "${WHITE}═══════════════════════════════════════${NC}"
-        echo -e "${BOLD}        系统更新/镜像源管理${NC}"
+        echo -e "${BOLD}        系统管理${NC}"
         echo -e "${WHITE}═══════════════════════════════════════${NC}"
+        echo -e "  ${GREEN}[1]${NC} 系统信息  ${GREEN}[2]${NC} 镜像源  ${GREEN}[3]${NC} 切换源"
+        echo -e "  ${GREEN}[4]${NC} 禁用企业源 ${GREEN}[5]${NC} 社区源"
+        echo -e "  ${GREEN}[6]${NC} 更新系统 ${GREEN}[7]${NC} 清理系统"
+        echo -e "  ${GREEN}[0]${NC} 返回"
         echo ""
-        echo -e "  ${GREEN}[1]${NC} 显示系统信息"
-        echo -e "  ${GREEN}[2]${NC} 显示镜像源配置"
-        echo -e "  ${GREEN}[3]${NC} 切换镜像源"
-        echo -e "  ${GREEN}[4]${NC} 禁用 PVE 企业源"
-        echo -e "  ${GREEN}[5]${NC} 配置 PVE 社区源"
-        echo -e "  ${GREEN}[6]${NC} 更新系统"
-        echo -e "  ${GREEN}[7]${NC} 清理系统"
-        echo -e "  ${GREEN}[0]${NC} 返回主菜单"
-        echo ""
-        echo -ne "${WHITE}请选择 [0-7]: ${NC}"
+        echo -ne "${CYAN}请选择 [0-7]: ${NC}"
         read -r choice
         
         case "$choice" in
@@ -846,15 +463,13 @@ system_interactive() {
             0) return 0 ;;
             *) echo -e "${RED}无效选择${NC}" ;;
         esac
-        
-        echo ""; echo -ne "${YELLOW}按回车键继续...${NC}"; read -r
+        [[ "$choice" != "0" ]] && { echo ""; echo -ne "${YELLOW}按回车继续...${NC}"; read -r; }
     done
 }
 
 # ========== 主程序 ==========
 
 show_logo() {
-    clear
     echo -e "${BRIGHT_WHITE}"
     cat << "EOF"
 ██████╗ ██╗   ██╗███████╗    ████████╗ ██████╗  ██████╗ ██╗     
@@ -863,121 +478,48 @@ show_logo() {
 ██╔═══╝ ╚██╗ ██╔╝██╔══╝         ██║   ██║   ██║██║   ██║██║     
 ██║      ╚████╔╝ ███████╗       ██║   ╚██████╔╝╚██████╔╝███████╗
 ╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
-                                                                 
 EOF
     echo -e "${NC}"
-    echo -e "${WHITE}${BOLD}              Proxmox VE 管理工具集 $VERSION (适用于 PVE 9.*)${NC}"
+    echo -e "${WHITE}${BOLD}         Proxmox VE 管理工具集 $VERSION (PVE 9.*)${NC}"
 }
 
-show_separator() {
-    echo -e "${WHITE}════════════════════════════════════════════════════════════════${NC}"
-}
+show_separator() { echo -e "${WHITE}════════════════════════════════════════════════════════${NC}"; }
 
 show_menu() {
     echo ""
     show_separator
-    echo -e "               ${WHITE}[1]${NC} 备份管理"
-    echo -e "               ${WHITE}[2]${NC} 系统监控"
-    echo -e "               ${WHITE}[3]${NC} LXC 容器管理"
-    echo -e "               ${WHITE}[4]${NC} 系统更新/镜像源"
-    echo -e "               ${WHITE}[0]${NC} 退出"
+    echo -e "   ${WHITE}[1]${NC} 备份管理    ${WHITE}[2]${NC} 系统监控    ${WHITE}[3]${NC} LXC管理"
+    echo -e "   ${WHITE}[4]${NC} 系统管理    ${WHITE}[0]${NC} 退出"
     show_separator
-    echo -e "        ${YELLOW}[!] 操作前请确认已备份重要数据${NC}"
-    echo ""
+    echo -e "        ${YELLOW}⚠ 操作前请备份重要数据${NC}"
+}
+
+show_help() {
+    echo -e "${BLUE}PVE Toolkit $VERSION${NC}"
+    echo "用法: $0 <命令> [选项]"
+    echo "命令: backup, monitor, lxc, system, help"
+    echo "示例: $0 monitor --status"
 }
 
 interactive_main() {
     while true; do
         show_logo
         show_menu
-        
-        echo -ne "    ${WHITE}请选择功能 [0-4]: ${NC}"
-        if [[ -t 0 ]]; then
-            read -r choice
-        else
-            read -r choice || choice=""
-        fi
-        
-        # 空输入时重新显示菜单
-        if [[ -z "$choice" ]]; then
-            continue
-        fi
+        echo -ne "${CYAN}请选择 [0-4]: ${NC}"
+        read -r choice
         
         case "$choice" in
-            1)
-                echo ""
-                echo -e "${GREEN}>>> 进入备份管理模块${NC}"
-                if ask_confirm "是否进入备份管理？"; then
-                    backup_interactive
-                fi
-                ;;
-            2)
-                echo ""
-                echo -e "${GREEN}>>> 进入系统监控模块${NC}"
-                if ask_confirm "是否进入系统监控？"; then
-                    monitor_interactive
-                fi
-                ;;
-            3)
-                echo ""
-                echo -e "${GREEN}>>> 进入 LXC 容器管理模块${NC}"
-                if ask_confirm "是否进入 LXC 容器管理？"; then
-                    lxc_interactive
-                fi
-                ;;
-            4)
-                echo ""
-                echo -e "${GREEN}>>> 进入系统更新/镜像源管理模块${NC}"
-                if ask_confirm "是否进入系统管理？"; then
-                    system_interactive
-                fi
-                ;;
-            0)
-                echo ""
-                echo -e "${GREEN}感谢使用 PVE Toolkit，再见！${NC}"
-                exit 0
-                ;;
-            *)
-                echo ""
-                echo -e "${RED}无效选择，请输入 0-4${NC}"
-                ;;
+            1) echo -e "${GREEN}>>> 备份管理${NC}"; backup_interactive ;;
+            2) echo -e "${GREEN}>>> 系统监控${NC}"; monitor_interactive ;;
+            3) echo -e "${GREEN}>>> LXC管理${NC}"; lxc_interactive ;;
+            4) echo -e "${GREEN}>>> 系统管理${NC}"; system_interactive ;;
+            0) echo -e "${GREEN}再见!${NC}"; exit 0 ;;
+            *) echo -e "${RED}无效选择${NC}" ;;
         esac
-        
-        echo ""
-        echo -ne "${YELLOW}按回车键继续...${NC}"
-        if [[ -t 0 ]]; then
-            read -r
-        else
-            read -r || true
-        fi
     done
 }
 
-show_help() {
-    echo -e "${BLUE}PVE Toolkit - Proxmox VE 管理工具集 $VERSION${NC}"
-    echo ""
-    echo "用法: $0 <命令> [选项]"
-    echo ""
-    echo "命令:"
-    echo "  backup    备份管理"
-    echo "  monitor   系统监控"
-    echo "  lxc       LXC 容器管理"
-    echo "  system    系统更新/镜像源管理"
-    echo "  help      显示此帮助信息"
-    echo ""
-    echo "示例:"
-    echo "  $0 backup --list"
-    echo "  $0 monitor --status"
-    echo "  $0 lxc --list"
-    echo "  $0 system --update"
-}
-
 main() {
-    # 检测是否为管道执行
-    if [[ ! -t 0 ]]; then
-        export FORCE_INTERACTIVE=1
-    fi
-    
     if [[ $# -gt 0 ]]; then
         case "${1:-}" in
             backup) shift; backup_main "$@" ;;
@@ -985,22 +527,11 @@ main() {
             lxc) shift; lxc_main "$@" ;;
             system) shift; system_main "$@" ;;
             help|--help|-h) show_help ;;
-            *) echo -e "${RED}错误: 未知命令 '${1:-}'${NC}"; show_help; exit 1 ;;
+            *) echo -e "${RED}错误: 未知命令 '${1}'${NC}"; show_help; exit 1 ;;
         esac
     else
         check_root
         check_pve_version
-        
-        # 如果没有 TTY 但需要交互，提示用户
-        if [[ ! -t 0 ]] && [[ "$FORCE_INTERACTIVE" != "1" ]]; then
-            log_warn "检测到非交互模式，使用命令行模式"
-            echo ""
-            echo "用法: $0 <命令> [选项]"
-            echo "示例: $0 monitor --status"
-            echo "帮助: $0 help"
-            exit 0
-        fi
-        
         interactive_main
     fi
 }
