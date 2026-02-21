@@ -6,7 +6,7 @@
 
 set -e
 
-VERSION="V0.22"
+VERSION="V0.23"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -30,7 +30,11 @@ log_ask() { echo -e "${YELLOW}[询问]${NC} $1"; }
 ask_confirm() {
     local prompt="$1"
     echo -ne "${YELLOW}$prompt (y/N): ${NC}"
-    read -r confirm
+    if [[ -t 0 ]]; then
+        read -r confirm
+    else
+        read -r confirm || confirm="n"
+    fi
     [[ "$confirm" =~ ^[Yy]$ ]]
 }
 
@@ -874,7 +878,11 @@ interactive_main() {
         show_menu
         
         echo -ne "    ${WHITE}请选择功能 [0-4]: ${NC}"
-        read -r choice
+        if [[ -t 0 ]]; then
+            read -r choice
+        else
+            read -r choice || choice=""
+        fi
         
         case "$choice" in
             1)
@@ -942,6 +950,11 @@ show_help() {
 }
 
 main() {
+    # 检测是否为管道执行
+    if [[ ! -t 0 ]]; then
+        export FORCE_INTERACTIVE=1
+    fi
+    
     if [[ $# -gt 0 ]]; then
         case "${1:-}" in
             backup) shift; backup_main "$@" ;;
@@ -954,6 +967,17 @@ main() {
     else
         check_root
         check_pve_version
+        
+        # 如果没有 TTY 但需要交互，提示用户
+        if [[ ! -t 0 ]] && [[ "$FORCE_INTERACTIVE" != "1" ]]; then
+            log_warn "检测到非交互模式，使用命令行模式"
+            echo ""
+            echo "用法: $0 <命令> [选项]"
+            echo "示例: $0 monitor --status"
+            echo "帮助: $0 help"
+            exit 0
+        fi
+        
         interactive_main
     fi
 }
