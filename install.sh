@@ -43,7 +43,7 @@ echo ""
 # 检查 root 权限
 if [[ $EUID -ne 0 ]]; then
     log_err "此脚本需要 root 权限"
-    echo "请使用: sudo bash -c '\$(curl -sL $SCRIPT_URL)'"
+    echo "请使用: su - root -c 'curl -sL $SCRIPT_URL | bash'"
     exit 1
 fi
 
