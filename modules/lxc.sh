@@ -169,20 +169,30 @@ lxc_install_docker() {
         # 安装依赖
         apt update && apt install -y curl ca-certificates gnupg lsb-release
         
+        # 检测 Debian 版本，兼容处理
+        CODENAME=$(lsb_release -cs)
+        
+        # 如果是 Trixie(13) 或不在支持列表，使用 Bookworm(12)
+        if [[ "$CODENAME" == "trixie" ]] || [[ "$CODENAME" == "sid" ]]; then
+            CODENAME="bookworm"
+        fi
+        
         # 添加 Docker 阿里云 GPG 密钥
         mkdir -p /etc/apt/keyrings
-        curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null || \
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         
-        # 添加 Docker 阿里云软件源
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        # 添加 Docker 软件源
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null || \
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
         
         # 安装 Docker
         apt update
-        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || apt install -y docker.io
         
         # 启动 Docker
-        systemctl enable docker
-        systemctl start docker
+        systemctl enable docker 2>/dev/null || true
+        systemctl start docker 2>/dev/null || true
     '
     
     if [[ $? -eq 0 ]]; then
