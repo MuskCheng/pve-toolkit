@@ -164,48 +164,34 @@ lxc_install_docker() {
     
     echo -e "${GREEN}正在为容器 $vmid 安装 Docker...${NC}"
     
-    # 使用多源安装 Docker
+    # 使用官方 Docker 源安装
     pct exec "$vmid" -- bash -c '
         # 安装依赖
         apt update && apt install -y curl ca-certificates gnupg lsb-release
         
-        # 检测 Debian 版本
+        # 获取 Debian 版本号
         CODENAME=$(lsb_release -cs)
-        
-        # 兼容处理不支持的版本
-        SUPPORTED_CODENAMES="bookworm trixie"
-        if ! echo "$SUPPORTED_CODENAMES" | grep -qw "$CODENAME"; then
-            CODENAME="bookworm"
-        fi
         
         mkdir -p /etc/apt/keyrings
         
-        # 方法1: 尝试官方 Docker 源
-        install_docker_from_repo() {
-            curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null && \
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" > /etc/apt/sources.list.d/docker.list && \
-            apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-        }
-        
-        # 方法2: 尝试阿里云 Docker 源
-        install_docker_from_aliyun() {
-            curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null && \
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian ${CODENAME} stable" > /etc/apt/sources.list.d/docker.list && \
-            apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-        }
-        
-        # 方法3: 使用系统自带 docker.io
-        install_docker_from_system() {
-            apt install -y docker.io
-        }
-        
-        # 依次尝试安装
-        if ! install_docker_from_repo; then
-            rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.gpg
-            if ! install_docker_from_aliyun; then
-                rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.gpg
-                install_docker_from_system
+        # 方法1: 官方 Docker 源
+        if curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null; then
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+            if apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null; then
+                DOCKER_OK=1
             fi
+        fi
+        
+        # 方法2: 系统自带 docker.io
+        if [[ "$DOCKER_OK" != "1" ]]; then
+            rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.gpg
+            if apt install -y docker.io 2>/dev/null; then
+                DOCKER_OK=2
+            fi
+        fi
+        
+        if [[ "$DOCKER_OK" != "1" ]] && [[ "$DOCKER_OK" != "2" ]]; then
+            exit 1
         fi
         
         # 启动 Docker
@@ -216,9 +202,9 @@ lxc_install_docker() {
     if [[ $? -eq 0 ]]; then
         # 配置默认 Docker 镜像加速
         pct exec "$vmid" -- bash -c "mkdir -p /etc/docker && echo '{\"registry-mirrors\":[\"https://docker.m.daocloud.io\",\"https://hub.rat.dev\"]}' > /etc/docker/daemon.json"
-        pct exec "$vmid" -- systemctl restart docker
+        pct exec "$vmid" -- bash -c "systemctl restart docker 2>/dev/null || systemctl restart docker.io 2>/dev/null || true"
         echo -e "${GREEN}Docker 安装完成${NC}"
-        pct exec "$vmid" -- docker --version
+        pct exec "$vmid" -- bash -c "docker --version 2>/dev/null || docker.io --version 2>/dev/null"
         
         # 询问是否切换镜像源
         echo ""
