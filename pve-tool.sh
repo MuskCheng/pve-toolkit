@@ -6,7 +6,21 @@
 
 set -e
 
-VERSION="V0.23"
+VERSION="V0.24"
+
+# 检测管道执行并自动保存
+if [[ ! -t 0 ]] && [[ -z "$PVE_TOOL_SAVED" ]]; then
+    echo "[INFO] 检测到管道执行，正在保存脚本..."
+    SCRIPT_PATH="/tmp/pve-tool-$(date +%s).sh"
+    cat > "$SCRIPT_PATH"
+    chmod +x "$SCRIPT_PATH"
+    echo "[INFO] 脚本已保存到: $SCRIPT_PATH"
+    echo "[INFO] 请使用以下命令运行:"
+    echo "    bash $SCRIPT_PATH"
+    exec bash "$SCRIPT_PATH"
+fi
+
+export PVE_TOOL_SAVED=1
 
 # 颜色定义
 RED='\033[0;31m'
@@ -42,7 +56,7 @@ ask_confirm() {
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_err "此脚本需要 root 权限"
-        echo "请使用: su - root -c 'curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash'"
+        echo "请使用 root 用户运行或加 sudo"
         exit 1
     fi
 }

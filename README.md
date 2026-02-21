@@ -15,7 +15,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/network)
 [![GitHub license](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/blob/master/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Proxmox%20VE%209.x-blue)](#)
-[![Version](https://img.shields.io/badge/Version-V0.23-green)](#)
+[![Version](https://img.shields.io/badge/Version-V0.24-green)](#)
 
 </div>
 
@@ -52,12 +52,8 @@ Proxmox VE 9.0 是 Proxmox 于 2024 年底发布的最新版本，基于 **Debia
 ### 一键运行
 
 ```bash
-# 方式1: 直接管道运行（推荐）
-su - root -c 'curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash'
-
-# 方式2: 保存到本地后运行
-curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh -o pve-tool.sh
-bash pve-tool.sh
+# 直接管道运行（自动保存脚本后执行）
+curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash
 ```
 
 ### 交互模式
