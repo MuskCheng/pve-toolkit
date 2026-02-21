@@ -237,9 +237,7 @@ lxc_menu() {
         echo -e "  ${GREEN}[7]${NC} 进入容器控制台"
         echo -e "  ${GREEN}[8]${NC} 克隆容器"
         echo -e "  ${GREEN}[9]${NC} 修改容器资源"
-        echo -e "  ${GREEN}[a]${NC} 安装 Docker"
-        echo -e "  ${GREEN}[b]${NC} 安装 Docker Compose"
-        echo -e "  ${GREEN}[c]${NC} Docker Compose 部署向导"
+        echo -e "  ${GREEN}[a]${NC} Docker 管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -320,27 +318,107 @@ lxc_menu() {
                 pause_func
                 ;;
             a)
+                docker_menu
+                ;;
+            0) break ;;
+        esac
+    done
+}
+
+# Docker 管理
+docker_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}════════ Docker 管理 ════════${NC}"
+        echo -e "  ${GREEN}[1]${NC} 安装 Docker"
+        echo -e "  ${GREEN}[2]${NC} 安装 Docker Compose"
+        echo -e "  ${GREEN}[3]${NC} Docker Compose 部署向导"
+        echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read c
+        echo
+        
+        case "$c" in
+            1)
                 pct list
                 echo -ne "请输入要安装 Docker 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    echo "安装 Docker..."
-                    pct exec "$id" -- bash -c 'apt update && apt install -y docker.io && systemctl enable docker && systemctl start docker'
-                    echo -e "${GREEN}Docker 安装完成${NC}"
+                    if ! pct exec "$id" -- command -v docker &>/dev/null; then
+                        echo "安装 Docker..."
+                        pct exec "$id" -- bash -c 'apt update && apt install -y docker.io && systemctl enable docker && systemctl start docker'
+                        echo -e "${GREEN}Docker 安装完成${NC}"
+                    else
+                        echo -e "${YELLOW}Docker 已安装${NC}"
+                        pct exec "$id" -- docker --version
+                    fi
                 fi
                 pause_func
                 ;;
-            b)
+            2)
                 pct list
                 echo -ne "请输入要安装 Docker Compose 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    echo "安装 Docker Compose..."
-                    pct exec "$id" -- bash -c 'apt update && apt install -y docker-compose-plugin && docker compose version'
-                    echo -e "${GREEN}Docker Compose 安装完成${NC}"
+                    if ! pct exec "$id" -- command -v docker &>/dev/null; then
+                        echo -e "${RED}错误: 请先安装 Docker${NC}"
+                    else
+                        echo "安装 Docker Compose..."
+                        pct exec "$id" -- bash -c 'apt update && apt install -y docker-compose-plugin && docker compose version'
+                        echo -e "${GREEN}Docker Compose 安装完成${NC}"
+                    fi
                 fi
                 pause_func
                 ;;
-            c)
+            3)
                 docker_deploy_menu
+                ;;
+            4)
+                pct list
+                echo -ne "请输入要升级镜像的容器 ID: "; read id
+                if [[ -n "$id" ]]; then
+                    if ! pct exec "$id" -- command -v docker &>/dev/null; then
+                        echo -e "${RED}错误: 容器中未安装 Docker${NC}"
+                        pause_func
+                        continue
+                    fi
+                    
+                    echo ""
+                    echo -e "${YELLOW}请输入 docker-compose.yml 所在目录:${NC}"
+                    echo -e "${CYAN}示例: /opt/wordpress 或 /opt/nginx${NC}"
+                    echo -ne "目录路径: "; read compose_dir
+                    
+                    if [[ -z "$compose_dir" ]]; then
+                        echo -e "${RED}错误: 请输入目录路径${NC}"
+                        pause_func
+                        continue
+                    fi
+                    
+                    if ! pct exec "$id" -- test -f "$compose_dir/docker-compose.yml"; then
+                        echo -e "${RED}错误: $compose_dir/docker-compose.yml 不存在${NC}"
+                        pause_func
+                        continue
+                    fi
+                    
+                    echo ""
+                    echo -e "${YELLOW}=== 升级流程 ===${NC}"
+                    echo -e "1. 停止容器..."
+                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose stop"
+                    
+                    echo -e "2. 拉取最新镜像..."
+                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose pull"
+                    
+                    echo -e "3. 重启容器..."
+                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose up -d"
+                    
+                    echo ""
+                    echo -e "${YELLOW}=== 升级后的容器状态 ===${NC}"
+                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose ps"
+                    
+                    echo ""
+                    echo -e "${GREEN}镜像升级完成！${NC}"
+                    echo -e "${YELLOW}注意: volumes 数据和配置文件不会丢失${NC}"
+                fi
+                pause_func
                 ;;
             0) break ;;
         esac
