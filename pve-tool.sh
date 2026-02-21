@@ -246,13 +246,22 @@ lxc_menu() {
         case "$c" in
             1) pct list; pause_func ;;
             2)
+                echo -e "${YELLOW}=== 可用 LXC 模板 ===${NC}"
+                if ls /var/lib/vz/template/cache/*.tar.zst 2>/dev/null; then
+                    echo ""
+                else
+                    echo -e "${YELLOW}未找到本地模板，将使用默认模板下载${NC}"
+                fi
                 echo -ne "容器 ID: "; read id
                 echo -ne "主机名: "; read hn
                 echo -ne "内存(MB) [2048]: "; read mem
                 echo -ne "CPU核心 [2]: "; read cores
                 echo -ne "磁盘(GB) [20]: "; read disk
+                echo -e "${YELLOW}可选模板 [debian-12-standard_12.12-1_amd64.tar.zst]: ${NC}"
+                echo -ne "使用模板: "; read template
+                template=${template:-debian-12-standard_12.12-1_amd64.tar.zst}
                 mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-20}
-                [[ -n "$id" && -n "$hn" ]] && pct create "$id" local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst \
+                [[ -n "$id" && -n "$hn" ]] && pct create "$id" local:vztmpl/"$template" \
                     --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
                     --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features nesting=1,keyctl=1 --start 1
                 pause_func
