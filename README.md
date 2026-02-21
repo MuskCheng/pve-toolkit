@@ -15,7 +15,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/network)
 [![GitHub license](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/blob/master/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Proxmox%20VE%209.x-blue)](#)
-[![Version](https://img.shields.io/badge/Version-V0.27-green)](#)
+[![Version](https://img.shields.io/badge/Version-V0.28-green)](#)
 
 </div>
 
@@ -49,29 +49,27 @@ Proxmox VE 9.0 是 Proxmox 于 2024 年底发布的最新版本，基于 **Debia
 - Proxmox VE 9.0 或更高版本
 - root 权限
 
-### 一键运行
+### 安装使用
 
 ```bash
-# 直接管道运行（自动保存脚本后执行）
-curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash
+# 下载脚本到临时目录
+curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh -o /tmp/pve.sh
+
+# 运行工具
+bash /tmp/pve.sh
 ```
-
-### 交互模式
-
-运行后将进入交互式菜单界面，通过数字键选择功能模块。
 
 ### 命令行模式
 
 ```bash
 # 备份管理
-bash pve-tool.sh backup --list
-bash pve-tool.sh backup --create 100
-bash pve-tool.sh backup --cleanup
-bash pve-tool.sh backup --restore /var/lib/vz/dump/vzdump-100.vma.zst 100
+/tmp/pve.sh backup --list
+/tmp/pve.sh backup --create 100
+/tmp/pve.sh backup --cleanup
 
 # 系统监控
-bash pve-tool.sh monitor --status
-bash pve-tool.sh monitor --vm
+/tmp/pve.sh monitor --status
+/tmp/pve.sh monitor --vm
 bash pve-tool.sh monitor --lxc
 bash pve-tool.sh monitor --resources
 bash pve-tool.sh monitor --network
