@@ -57,15 +57,18 @@ show_menu() {
 ╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
 EOF
     echo -e "${NC}"
+    echo -e "${YELLOW}适用系统: Proxmox VE 9.0+ | 需要 root 权限${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "  ${GREEN}[1]${NC} 备份管理"
     echo -e "  ${GREEN}[2]${NC} 系统监控"
-    echo -e "  ${GREEN}[3]${NC} LXC 管理"
+    echo -e "  ${GREEN}[3]${NC} LXC 容器管理"
     echo -e "  ${GREEN}[4]${NC} VM 管理"
     echo -e "  ${GREEN}[5]${NC} 系统管理"
     echo -e "  ${GREEN}[6]${NC} 换源工具"
     echo -e "  ${GREEN}[7]${NC} 常用工具"
     echo -e "  ${GREEN}[0]${NC} 退出"
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${RED}⚠️  安全提示: 操作前请备份重要数据，删除/恢复等操作不可逆${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
 }
 
