@@ -53,6 +53,15 @@ Proxmox VE 9.0 是 Proxmox 于 2024 年底发布的最新版本，基于 **Debia
 
 ### 安装使用
 
+#### 方法1：一键安装（推荐）
+
+```bash
+# 一键安装并运行
+bash -c "$(curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/install.sh)"
+```
+
+#### 方法2：手动下载
+
 ```bash
 # 下载脚本到临时目录
 curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh -o /tmp/pve.sh
