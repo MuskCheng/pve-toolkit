@@ -788,6 +788,7 @@ system_menu() {
         echo -e "  ${GREEN}[5]${NC} 存储信息"
         echo -e "  ${GREEN}[6]${NC} 内核管理"
         echo -e "  ${GREEN}[7]${NC} 查看日志"
+        echo -e "  ${GREEN}[8]${NC} 修复 Docker 源"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -860,9 +861,53 @@ system_menu() {
                 esac
                 pause_func
                 ;;
+            8)
+                fix_docker_source
+                ;;
             0) break ;;
         esac
     done
+}
+
+fix_docker_source() {
+    clear
+    echo -e "${BLUE}═══ 修复 Docker 源 ═══${NC}"
+    echo -e "${YELLOW}此功能用于修复 Docker CE 源错误${NC}"
+    echo -e "${YELLOW}常见问题: 阿里云 Docker 源不支持 Debian 13 (Trixie)${NC}"
+    echo ""
+    echo -e "${YELLOW}当前 Docker 源配置:${NC}"
+    ls -la /etc/apt/sources.list.d/ | grep -i docker
+    echo ""
+    echo -e "${CYAN}[1]${NC} 移除 Docker CE 源 (使用系统自带 docker.io)"
+    echo -e "${CYAN}[2]${NC} 添加 Docker 官方源"
+    echo -e "${CYAN}[0]${NC} 返回"
+    echo -ne "${CYAN}选择: ${NC}"
+    read fix_choice
+    echo
+    
+    case "$fix_choice" in
+        1)
+            echo -e "${YELLOW}移除 Docker CE 源...${NC}"
+            rm -f /etc/apt/sources.list.d/docker*.list 2>/dev/null
+            rm -f /etc/apt/sources.list.d/*.docker* 2>/dev/null
+            echo -e "${GREEN}已移除 Docker CE 源${NC}"
+            echo -e "${GREEN}现在可以使用系统自带的 docker.io${NC}"
+            apt update
+            pause_func
+            ;;
+        2)
+            echo -e "${YELLOW}添加 Docker 官方源...${NC}"
+            apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            echo -e "${GREEN}Docker 官方源添加完成${NC}"
+            apt update
+            pause_func
+            ;;
+        *)
+            return ;;
+    esac
 }
 
 # 换源
