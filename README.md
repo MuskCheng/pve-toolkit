@@ -15,7 +15,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/network)
 [![GitHub license](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/blob/master/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Proxmox%20VE%209.x-blue)](#)
-[![Version](https://img.shields.io/badge/Version-V0.29-green)](#)
+[![Version](https://img.shields.io/badge/Version-V0.30-green)](#)
 
 </div>
 
@@ -37,10 +37,12 @@ Proxmox VE 9.0 是 Proxmox 于 2024 年底发布的最新版本，基于 **Debia
 
 | 模块 | 功能描述 |
 |------|---------|
-| 📦 **备份管理** | VM/LXC 备份创建、恢复、清理，支持 zstd 压缩 |
+| 📦 **备份管理** | VM/LXC 备份创建、恢复、删除、清理，支持 zstd 压缩 |
 | 📊 **系统监控** | 系统状态、资源监控（CPU/内存/磁盘）、网络状态、日志查看 |
-| 🖴 **LXC 容器管理** | 容器创建、启动、停止、删除、进入控制台、Docker 一键安装 |
+| 🖴 **LXC 容器管理** | 容器创建、启动、停止、删除、克隆、进入控制台、Docker/Docker Compose 一键安装、**Docker Compose 部署向导** |
+| 💻 **VM 管理** | 虚拟机启动、停止、重启、配置修改、控制台 |
 | ⚙️ **系统管理** | 镜像源切换（PVE/DEB）、系统更新、清理 |
+| 🔧 **常用工具** | Docker/Compose 安装、NTP、htop、传感器、一键部署容器 |
 
 ## 🚀 快速开始
 
@@ -133,11 +135,17 @@ bash pve-tool.sh system --info
 | `lxc --info <ID>` | 查看容器详细信息和配置 |
 | `lxc --install-docker <ID>` | 一键在容器中安装 Docker |
 | `lxc --install-compose <ID>` | 一键在容器中安装 Docker Compose |
+| `lxc --deploy-compose <ID>` | Docker Compose 部署向导（交互式创建/模板部署） |
 
 **Docker 安装特性**：
 - 支持官方 Docker 源和系统自带 docker.io
 - 自动配置 Docker 镜像加速（DaoCloud）
 - 兼容 Debian 12/13 系统
+
+**Docker Compose 部署向导**：
+- 交互式引导创建 docker-compose.yml
+- 预置 9 种常用服务模板：Nginx、MySQL、PostgreSQL、Redis、MongoDB、Portainer、Nginx Proxy Manager、WordPress、Uptime Kuma
+- 支持端口映射、环境变量、卷挂载配置
 
 ### 4️⃣ 系统管理
 

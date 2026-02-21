@@ -2,7 +2,35 @@
 
 所有重要的更改都将记录在此文件中。
 
-## [V0.29] - 2026-02-21
+## [V0.30] - 2026-02-21
+
+### 新增
+
+- **Docker Compose 部署向导** - LXC 管理菜单新增功能
+  - 交互式创建 docker-compose.yml（服务名、镜像、端口、环境变量、卷挂载、重启策略）
+  - 预置 9 种常用服务模板：一键部署 Nginx、MySQL、PostgreSQL、Redis、MongoDB、Portainer、Nginx Proxy Manager、WordPress、Uptime Kuma
+  - 自动执行 `docker compose up -d` 部署
+
+### 新增
+
+- **VM 管理** - 独立菜单模块
+  - 虚拟机列表、启动、停止、重启、强制停止
+  - 查看/修改 VM 配置
+  - VM 控制台
+
+### 新增
+
+- **常用工具** - 独立菜单模块
+  - Docker/Docker Compose 安装
+  - NTP 时间同步配置
+  - htop/lm-sensors 安装
+  - Docker 镜像加速配置
+  - 一键部署常用容器（Portainer、NPM、Watchtower、Home Assistant）
+
+### 优化
+
+- 备份管理增强：支持恢复备份、删除备份、备份统计
+- 换源工具优化为独立菜单
 
 ### 重构
 
