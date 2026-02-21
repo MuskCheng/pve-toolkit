@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # PVE Toolkit 一键安装脚本
-# 使用方法: curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/main/install.sh | bash
+# 使用方法: curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/install.sh | bash
 
 set -e
 
@@ -19,13 +19,13 @@ extract_user() {
     echo "$url" | sed -n 's|.*github.com/\([^/]*\)/.*|\1|p'
 }
 
-SCRIPT_URL="${SCRIPT_URL:-https://raw.githubusercontent.com/MuskCheng/pve-toolkit/main/install.sh}"
+SCRIPT_URL="${SCRIPT_URL:-https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/install.sh}"
 GH_USER=$(extract_user "$SCRIPT_URL")
 
 # 如果提供了参数，使用参数作为用户名
 if [[ -n "$1" ]] && [[ "$1" != "-"* ]]; then
-GH_USER="MuskCheng"
-SCRIPT_URL="https://raw.githubusercontent.com/MuskCheng/pve-toolkit/main/install.sh"
+    GH_USER="$1"
+    SCRIPT_URL="https://raw.githubusercontent.com/$GH_USER/pve-toolkit/master/install.sh"
 fi
 
 echo -e "${GREEN}PVE Toolkit 安装器${NC}"
@@ -53,7 +53,7 @@ if [[ -d "$INSTALL_DIR" ]]; then
     echo -e "${YELLOW}检测到已安装，正在更新...${NC}"
     cd "$INSTALL_DIR"
     if git remote -v | grep -q origin; then
-        git pull origin main 2>/dev/null || echo "更新失败，将重新安装"
+        git pull origin master 2>/dev/null || echo "更新失败，将重新安装"
     else
         rm -rf "$INSTALL_DIR"
     fi
