@@ -6,7 +6,7 @@
 
 set -e
 
-VERSION="V0.24"
+VERSION="V0.25"
 
 # 检测管道执行并自动保存
 if [[ ! -t 0 ]] && [[ -z "$PVE_TOOL_SAVED" ]]; then
@@ -898,6 +898,11 @@ interactive_main() {
             read -r choice || choice=""
         fi
         
+        # 空输入时重新显示菜单
+        if [[ -z "$choice" ]]; then
+            continue
+        fi
+        
         case "$choice" in
             1)
                 echo ""
@@ -940,7 +945,11 @@ interactive_main() {
         
         echo ""
         echo -ne "${YELLOW}按回车键继续...${NC}"
-        read -r
+        if [[ -t 0 ]]; then
+            read -r
+        else
+            read -r || true
+        fi
     done
 }
 
