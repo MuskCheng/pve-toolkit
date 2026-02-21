@@ -75,7 +75,7 @@ show_logo() {
                                                                 
 EOF
     echo -e "${NC}"
-    echo -e "${WHITE}${BOLD}              Proxmox VE 管理工具集 V0.13 (适用于 PVE 9.*)${NC}"
+    echo -e "${WHITE}${BOLD}              Proxmox VE 管理工具集 V0.14 (适用于 PVE 9.*)${NC}"
 }
 
 # 显示分割线
