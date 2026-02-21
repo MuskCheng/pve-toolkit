@@ -15,7 +15,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/network)
 [![GitHub license](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/blob/master/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Proxmox%20VE%209.x-blue)](#)
-[![Version](https://img.shields.io/badge/Version-V0.34-green)](#)
+[![Version](https://img.shields.io/badge/Version-V0.35-green)](#)
 
 </div>
 
@@ -53,18 +53,26 @@ Proxmox VE 9.0 是 Proxmox 于 2024 年底发布的最新版本，基于 **Debia
 
 ### 安装使用
 
-#### 方法1：一键安装（推荐）
+#### 方法1：官方源一键安装（国外服务器）
 
 ```bash
-# 一键安装并运行
 bash -c "$(curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/install.sh)"
 ```
 
-#### 方法2：手动下载
+#### 方法2：加速源一键安装（国内服务器推荐）
 
 ```bash
-# 下载脚本到临时目录
+bash -c "$(curl -sL https://cdn.jsdelivr.net/gh/MuskCheng/pve-toolkit@master/install.sh)"
+```
+
+#### 方法3：手动下载
+
+```bash
+# 官方源
 curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh -o /tmp/pve.sh
+
+# 加速源
+curl -sL https://cdn.jsdelivr.net/gh/MuskCheng/pve-toolkit@master/pve-tool.sh -o /tmp/pve.sh
 
 # 运行工具
 bash /tmp/pve.sh

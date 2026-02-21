@@ -1,13 +1,17 @@
 #!/bin/bash
 #
 # PVE Toolkit 一键安装脚本
-# 使用: bash -c "$(curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/install.sh)"
+# 
+# 使用方法:
+#   官方源: bash -c "$(curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/install.sh)"
+#   加速源: bash -c "$(curl -sL https://cdn.jsdelivr.net/gh/MuskCheng/pve-toolkit@master/install.sh)"
 
 set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${GREEN}PVE Toolkit 安装向导${NC}"
@@ -38,15 +42,46 @@ fi
 echo -e "${GREEN}✓ PVE 版本检查通过${NC}"
 echo ""
 
+# 选择下载源
+echo -e "${CYAN}请选择下载源:${NC}"
+echo -e "  ${GREEN}[1]${NC} 官方源 (GitHub) - 国外服务器推荐"
+echo -e "  ${GREEN}[2]${NC} 加速源 (jsDelivr CDN) - 国内服务器推荐"
+echo -ne "${CYAN}选择 [2]: ${NC}"
+read source_choice
+source_choice=${source_choice:-2}
+
+case "$source_choice" in
+    1)
+        SCRIPT_URL="https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh"
+        echo -e "${YELLOW}使用官方源下载...${NC}"
+        ;;
+    2)
+        SCRIPT_URL="https://cdn.jsdelivr.net/gh/MuskCheng/pve-toolkit@master/pve-tool.sh"
+        echo -e "${YELLOW}使用加速源下载...${NC}"
+        ;;
+    *)
+        SCRIPT_URL="https://cdn.jsdelivr.net/gh/MuskCheng/pve-toolkit@master/pve-tool.sh"
+        echo -e "${YELLOW}使用加速源下载...${NC}"
+        ;;
+esac
+
+echo ""
+
 # 下载脚本
 echo -e "${YELLOW}正在下载 PVE Toolkit...${NC}"
-SCRIPT_URL="https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh"
 
 if curl -sL "$SCRIPT_URL" -o /tmp/pve-tool.sh; then
     echo -e "${GREEN}✓ 下载完成${NC}"
 else
     echo -e "${RED}✗ 下载失败，请检查网络连接${NC}"
-    exit 1
+    echo -e "${YELLOW}尝试备用源...${NC}"
+    SCRIPT_URL="https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh"
+    if curl -sL "$SCRIPT_URL" -o /tmp/pve-tool.sh; then
+        echo -e "${GREEN}✓ 备用源下载成功${NC}"
+    else
+        echo -e "${RED}✗ 所有下载方式均失败${NC}"
+        exit 1
+    fi
 fi
 
 # 添加执行权限
