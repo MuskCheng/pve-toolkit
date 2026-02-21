@@ -1,0 +1,27 @@
+# PVE Toolkit .gitignore
+
+# 备份文件
+*.bak
+*.backup
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.swp
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 环境变量
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
