@@ -1,10 +1,27 @@
 #!/bin/bash
 #
 # PVE Toolkit - Proxmox VE 管理工具集
-# 版本: V0.30
 # 使用: curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh -o /tmp/pve.sh && bash /tmp/pve.sh
 
-VERSION="V0.30"
+# 读取本地版本
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+    VERSION=$(cat "$SCRIPT_DIR/VERSION")
+else
+    VERSION="V0.35"
+fi
+
+# 查询 GitHub 最新版本
+get_latest_version() {
+    local latest
+    latest=$(curl -sS "https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+    echo "$latest"
+}
+
+LATEST_VERSION=$(get_latest_version)
+if [[ -z "$LATEST_VERSION" ]]; then
+    LATEST_VERSION="$VERSION"
+fi
 
 # 颜色定义
 RED='\033[0;31m'
@@ -59,7 +76,7 @@ EOF
     echo -e "${NC}"
     echo -e "${GREEN}PVE Toolkit 一键脚本${NC}"
     echo -e "${YELLOW}Proxmox VE 管理工具集，简化日常运维${NC}"
-    echo -e "${CYAN}当前版本: ${VERSION}${NC}"
+    echo -e "${CYAN}当前版本: ${VERSION} | 最新版本: ${LATEST_VERSION}${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "${WHITE}请选择您需要的功能:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"

@@ -15,7 +15,9 @@
 [![GitHub forks](https://img.shields.io/github/forks/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/network)
 [![GitHub license](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](https://github.com/MuskCheng/pve-toolkit/blob/master/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Proxmox%20VE%209.x-blue)](#)
-[![Version](https://img.shields.io/badge/Version-V0.35-green)](#)
+[![Version](https://img.shields.io/github/v/release/MuskCheng/pve-toolkit?display_name=tag&label=%E7%89%88%E6%9C%AC&sort=semver)](https://github.com/MuskCheng/pve-toolkit/releases/latest)
+
+> **版本说明**: 脚本版本由 `VERSION` 文件管理，版本号随脚本一起发布
 
 </div>
 
