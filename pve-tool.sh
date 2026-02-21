@@ -1,25 +1,20 @@
 #!/bin/bash
 #
-# PVE Toolkit - Proxmox VE 管理工具集
-# 适用于 PVE 9.*
+# PVE Toolkit 完整版 - 单文件脚本
+# 使用方法: 
+#   curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash
+#   或保存后执行: curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh -o pve-tool.sh && bash pve-tool.sh
 #
+# 交互模式直接运行
+# 命令行模式: bash pve-tool.sh <command>
 
 set -e
 
-# 检查 root 权限
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}错误: 此脚本需要 root 权限运行${NC}"
-        echo "请使用: sudo $0"
-        exit 1
-    fi
-}
+VERSION="V0.21"
 
-# 脚本目录 exit 1
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="${SCRIPT_DIR}/config"
-MODULES_DIR="${SCRIPT_DIR}/modules"
+# 脚本目录（临时目录）
+SCRIPT_DIR="/opt/pve-toolkit"
+TEMP_DIR="/tmp/pve-toolkit-$$"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -30,14 +25,106 @@ CYAN='\033[0;36m'
 WHITE='\033[0;37m'
 BRIGHT_WHITE='\033[1;37m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
+
+# 日志函数
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_err() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_ask() { echo -e "${YELLOW}[询问]${NC} $1"; }
+
+# 询问确认
+ask_confirm() {
+    local prompt="$1"
+    local default="${2:-N}"
+    local confirm
+    echo -ne "${YELLOW}$prompt (y/N): ${NC}"
+    read -r confirm
+    [[ "$confirm" =~ ^[Yy]$ ]]
+}
+
+# 检查 root 权限
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_err "此脚本需要 root 权限"
+        echo "请使用: su - root -c 'curl -sL https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh | bash'"
+        exit 1
+    fi
+}
+
+# 检查 PVE 版本
+check_pve_version() {
+    if command -v pveversion &>/dev/null; then
+        local pve_ver=$(pveversion | grep -oP 'pve-manager/\K[0-9]+')
+        if [[ -n "$pve_ver" ]] && [[ "$pve_ver" -ge 9 ]]; then
+            log_ok "检测到 PVE 版本: $pve_ver"
+            return 0
+        else
+            log_err "不支持的 PVE 版本 (需要 PVE 9.0+, 当前: $pve_ver)"
+            exit 1
+        fi
+    else
+        if [[ -f /etc/os-release ]]; then
+            local version_id=$(grep -oP 'VERSION_ID=\K[0-9]+' /etc/os-release | head -1)
+            if [[ "$version_id" -ge 9 ]]; then
+                log_ok "检测到 Debian 版本: $version_id"
+                return 0
+            fi
+        fi
+        log_err "无法确定系统版本，请确保这是 PVE 9.0+ 系统"
+        exit 1
+    fi
+}
+
+# 检查依赖
+check_dependencies() {
+    for cmd in curl; do
+        if ! command -v $cmd &>/dev/null; then
+            log_err "需要安装 $cmd"
+            exit 1
+        fi
+    done
+    
+    if ! command -v git &>/dev/null; then
+        log_warn "未检测到 git，正在安装..."
+        apt-get update -qq 2>/dev/null || true
+        apt-get install -y -qq git 2>/dev/null || apt-get install -y git 2>/dev/null || true
+    fi
+}
+
+# 下载模块
+download_modules() {
+    mkdir -p "$SCRIPT_DIR/modules" "$SCRIPT_DIR/config"
+    
+    local base_url="https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master"
+    
+    # 下载模块文件
+    for module in backup.sh lxc.sh monitor.sh system.sh; do
+        log_info "下载 $module..."
+        curl -fsSL "$base_url/modules/$module" -o "$SCRIPT_DIR/modules/$module" || {
+            log_err "下载 $module 失败"
+            exit 1
+        }
+    done
+    
+    # 下载配置文件
+    log_info "下载配置文件..."
+    curl -fsSL "$base_url/config/settings.conf" -o "$SCRIPT_DIR/config/settings.conf" || {
+        log_err "下载配置文件失败"
+        exit 1
+    }
+    
+    # 设置权限
+    chmod +x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR/modules"/*.sh 2>/dev/null || true
+    
+    log_ok "模块下载完成"
+}
 
 # 加载配置
 load_config() {
-    if [[ -f "${CONFIG_DIR}/settings.conf" ]]; then
-        source "${CONFIG_DIR}/settings.conf"
-    else
-        echo -e "${YELLOW}警告: 配置文件不存在，使用默认配置${NC}"
+    if [[ -f "${SCRIPT_DIR}/config/settings.conf" ]]; then
+        source "${SCRIPT_DIR}/config/settings.conf"
     fi
     
     : "${BACKUP_DIR:=/var/lib/vz/dump}"
@@ -54,7 +141,7 @@ load_config() {
 
 # 加载模块
 load_modules() {
-    for module in "${MODULES_DIR}"/*.sh; do
+    for module in "${SCRIPT_DIR}/modules"/*.sh; do
         if [[ -f "$module" ]]; then
             source "$module"
         fi
@@ -72,10 +159,10 @@ show_logo() {
 ██╔═══╝ ╚██╗ ██╔╝██╔══╝         ██║   ██║   ██║██║   ██║██║     
 ██║      ╚████╔╝ ███████╗       ██║   ╚██████╔╝╚██████╔╝███████╗
 ╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
-                                                                
+                                                                 
 EOF
     echo -e "${NC}"
-    echo -e "${WHITE}${BOLD}              Proxmox VE 管理工具集 V0.20 (适用于 PVE 9.*)${NC}"
+    echo -e "${WHITE}${BOLD}              Proxmox VE 管理工具集 $VERSION (适用于 PVE 9.*)${NC}"
 }
 
 # 显示分割线
@@ -83,7 +170,7 @@ show_separator() {
     echo -e "${WHITE}════════════════════════════════════════════════════════════════${NC}"
 }
 
-# 显示交互菜单
+# 显示菜单
 show_menu() {
     echo ""
     show_separator
@@ -110,22 +197,30 @@ interactive_main() {
             1)
                 echo ""
                 echo -e "${GREEN}>>> 进入备份管理模块${NC}"
-                backup_interactive
+                if ask_confirm "是否进入备份管理？"; then
+                    backup_interactive
+                fi
                 ;;
             2)
                 echo ""
                 echo -e "${GREEN}>>> 进入系统监控模块${NC}"
-                monitor_interactive
+                if ask_confirm "是否进入系统监控？"; then
+                    monitor_interactive
+                fi
                 ;;
             3)
                 echo ""
                 echo -e "${GREEN}>>> 进入 LXC 容器管理模块${NC}"
-                lxc_interactive
+                if ask_confirm "是否进入 LXC 容器管理？"; then
+                    lxc_interactive
+                fi
                 ;;
             4)
                 echo ""
                 echo -e "${GREEN}>>> 进入系统更新/镜像源管理模块${NC}"
-                system_interactive
+                if ask_confirm "是否进入系统管理？"; then
+                    system_interactive
+                fi
                 ;;
             0)
                 echo ""
@@ -144,7 +239,7 @@ interactive_main() {
     done
 }
 
-# 显示帮助信息
+# 显示帮助
 show_help() {
     echo -e "${BLUE}PVE Toolkit - Proxmox VE 管理工具集${NC}"
     echo ""
@@ -166,12 +261,18 @@ show_help() {
 
 # 主函数
 main() {
-    check_root
-    load_config
-    load_modules
-
     # 如果有命令行参数，直接执行命令模式
     if [[ $# -gt 0 ]]; then
+        # 先确保模块已下载
+        if [[ ! -d "$SCRIPT_DIR/modules" ]]; then
+            check_root
+            check_pve_version
+            check_dependencies
+            download_modules
+        fi
+        load_config
+        load_modules
+        
         case "${1:-}" in
             backup)
                 shift
@@ -200,6 +301,19 @@ main() {
         esac
     else
         # 无参数时启动交互模式
+        check_root
+        check_pve_version
+        check_dependencies
+        
+        # 检查是否已安装
+        if [[ ! -d "$SCRIPT_DIR/modules" ]]; then
+            echo ""
+            log_info "首次运行，正在初始化..."
+            download_modules
+        fi
+        
+        load_config
+        load_modules
         interactive_main
     fi
 }
