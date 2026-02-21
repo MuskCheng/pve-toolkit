@@ -25,8 +25,20 @@ pause_func() {
 # 检查 root
 [[ $EUID -ne 0 ]] && { echo -e "${RED}需要 root 权限${NC}"; exit 1; }
 
-# 检查 PVE
-command -v pveversion &>/dev/null && pveversion | grep -q "pve-manager/9" || { echo -e "${RED}需要 PVE 9.0+${NC}"; exit 1; }
+# 检查 PVE 版本
+if ! command -v pveversion &>/dev/null; then
+    echo -e "${RED}抱歉，不支持此系统${NC}"
+    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.0+${NC}"
+    exit 1
+fi
+
+PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1)
+if [[ -z "$PVE_VER" || "$PVE_VER" -lt 9 ]]; then
+    echo -e "${RED}抱歉，不支持此版本${NC}"
+    echo -e "${YELLOW}当前版本: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
+    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.0 或更高版本${NC}"
+    exit 1
+fi
 
 # 配置
 BACKUP_DIR="/var/lib/vz/dump"
@@ -70,7 +82,7 @@ backup_menu() {
         echo -e "  ${GREEN}[6]${NC} 备份统计"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -163,7 +175,7 @@ monitor_menu() {
         echo -e "  ${GREEN}[4]${NC} 实时监控"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -206,7 +218,7 @@ lxc_menu() {
             echo -e "  ${GREEN}[c]${NC} Docker Compose 部署向导"
             echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -304,7 +316,7 @@ docker_deploy_menu() {
         echo -e "  ${GREEN}[2]${NC} 已有模板部署"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -482,7 +494,7 @@ docker_deploy_template() {
     echo -e "  ${GREEN}[9]${NC} Uptime Kuma (监控)"
     echo -e "  ${GREEN}[0]${NC} 返回"
     echo -ne "${CYAN}选择: ${NC}"
-    read -n 1 t
+    read t
     echo
     
     case "$t" in
@@ -693,7 +705,7 @@ vm_menu() {
         echo -e "  ${GREEN}[8]${NC} VM 控制台"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -753,7 +765,7 @@ system_menu() {
         echo -e "  ${GREEN}[7]${NC} 查看日志"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -839,7 +851,7 @@ change_source() {
         echo -e "  ${GREEN}[4]${NC} 华为云源"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -852,7 +864,7 @@ change_source() {
         esac
         
         echo -e "${YELLOW}确认换源? (y/N)${NC}"
-        read -n 1 confirm
+        read confirm
         echo
         [[ "$confirm" != "y" && "$confirm" != "Y" ]] && continue
         
@@ -892,7 +904,7 @@ tools_menu() {
         echo -e "  ${GREEN}[7]${NC} 一键部署常用容器"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
-        read -n 1 c
+        read c
         echo
         
         case "$c" in
@@ -989,12 +1001,13 @@ EOF
 # 主循环
 main() {
     echo -e "${GREEN}PVE Toolkit $VERSION 加载完成${NC}"
+    echo -e "${GREEN}PVE 版本检查通过${NC}"
     sleep 1
     
     while true; do
         show_menu
         echo -ne "${CYAN}选择 [0-7]: ${NC}"
-        read -n 1 choice
+        read choice
         echo
         
         case "$choice" in
