@@ -47,7 +47,53 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# 检查 PVE 版本
+check_pve_version() {
+    if command -v pveversion &>/dev/null; then
+        local pve_ver=$(pveversion | grep -oP 'pve-manager/\K[0-9]+')
+        if [[ -z "$pve_ver" ]]; then
+            log_warn "无法获取 PVE 版本，尝试从系统信息获取..."
+            if [[ -f /etc/os-release ]]; then
+                local version_id=$(grep -oP 'VERSION_ID=\K[0-9]+' /etc/os-release | head -1)
+                if [[ "$version_id" -ge 9 ]]; then
+                    log_ok "检测到 Debian 版本: $version_id"
+                    return 0
+                else
+                    log_err "不支持的 PVE 版本 (需要 PVE 9.0+)"
+                    exit 1
+                fi
+            fi
+            log_err "无法确定系统版本"
+            exit 1
+        fi
+        if [[ "$pve_ver" -ge 9 ]]; then
+            log_ok "检测到 PVE 版本: $pve_ver"
+            return 0
+        else
+            log_err "不支持的 PVE 版本 (需要 PVE 9.0+, 当前: $pve_ver)"
+            exit 1
+        fi
+    else
+        log_warn "未检测到 pveversion，尝试从系统信息判断..."
+        if [[ -f /etc/os-release ]]; then
+            local version_id=$(grep -oP 'VERSION_ID=\K[0-9]+' /etc/os-release | head -1)
+            if [[ "$version_id" -ge 9 ]]; then
+                log_ok "检测到 Debian 版本: $version_id (符合 PVE 9.x)"
+                return 0
+            else
+                log_err "不支持的系统版本 (需要 Debian 12+ 或 PVE 9.0+)"
+                exit 1
+            fi
+        fi
+        log_err "无法确定系统版本，请确保这是 PVE 9.0+ 系统"
+        exit 1
+    fi
+}
+
 log_info "开始安装 PVE Toolkit..."
+
+# 检查 PVE 版本
+check_pve_version
 
 # 检查并安装依赖
 for cmd in curl; do
