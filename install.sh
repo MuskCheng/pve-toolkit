@@ -38,13 +38,19 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 检查命令
-for cmd in curl git; do
+# 检查并安装依赖
+for cmd in curl; do
     if ! command -v $cmd &>/dev/null; then
         echo -e "${RED}错误: 需要安装 $cmd${NC}"
         exit 1
     fi
 done
+
+# 检查并自动安装 git
+if ! command -v git &>/dev/null; then
+    echo -e "${YELLOW}正在安装 git...${NC}"
+    apt-get update && apt-get install -y git
+fi
 
 REPO_URL="https://github.com/$GH_USER/pve-toolkit.git"
 
