@@ -60,9 +60,11 @@ done
 # 检查并自动安装 git
 if ! command -v git &>/dev/null; then
     log_warn "未检测到 git，正在安装..."
-    apt-get update -qq
-    apt-get install -y -qq git
-    log_ok "git 安装完成"
+    apt-get update -qq 2>/dev/null || true
+    apt-get install -y -qq git 2>/dev/null || apt-get install -y git || log_err "git 安装失败，请手动安装: apt-get install -y git"
+    if command -v git &>/dev/null; then
+        log_ok "git 安装完成"
+    fi
 else
     log_ok "git 已安装"
 fi
