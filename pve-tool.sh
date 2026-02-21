@@ -203,20 +203,20 @@ monitor_menu() {
 lxc_menu() {
     while true; do
         clear
-        echo -e "${BLUE}════════ LXC 管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 列表"
-        echo -e "  ${GREEN}[2]${NC} 创建容器"
-        echo -e "  ${GREEN}[3]${NC} 启动"
-        echo -e "  ${GREEN}[4]${NC} 停止"
-        echo -e "  ${GREEN}[5]${NC} 重启"
+        echo -e "${BLUE}════════ LXC 容器管理 ════════${NC}"
+        echo -e "  ${GREEN}[1]${NC} 查看容器列表"
+        echo -e "  ${GREEN}[2]${NC} 创建新容器"
+        echo -e "  ${GREEN}[3]${NC} 启动容器"
+        echo -e "  ${GREEN}[4]${NC} 停止容器"
+        echo -e "  ${GREEN}[5]${NC} 重启容器"
         echo -e "  ${GREEN}[6]${NC} 删除容器"
-        echo -e "  ${GREEN}[7]${NC} 进入控制台"
+        echo -e "  ${GREEN}[7]${NC} 进入容器控制台"
         echo -e "  ${GREEN}[8]${NC} 克隆容器"
-        echo -e "  ${GREEN}[9]${NC} 修改资源"
-            echo -e "  ${GREEN}[a]${NC} 安装 Docker"
-            echo -e "  ${GREEN}[b]${NC} 安装 Docker Compose"
-            echo -e "  ${GREEN}[c]${NC} Docker Compose 部署向导"
-            echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -e "  ${GREEN}[9]${NC} 修改容器资源"
+        echo -e "  ${GREEN}[a]${NC} 安装 Docker"
+        echo -e "  ${GREEN}[b]${NC} 安装 Docker Compose"
+        echo -e "  ${GREEN}[c]${NC} Docker Compose 部署向导"
+        echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
         echo
@@ -224,7 +224,7 @@ lxc_menu() {
         case "$c" in
             1) pct list; pause_func ;;
             2)
-                echo -ne "ID: "; read id
+                echo -ne "容器 ID: "; read id
                 echo -ne "主机名: "; read hn
                 echo -ne "内存(MB) [2048]: "; read mem
                 echo -ne "CPU核心 [2]: "; read cores
@@ -235,11 +235,27 @@ lxc_menu() {
                     --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features nesting=1,keyctl=1 --start 1
                 pause_func
                 ;;
-            3) echo -ne "ID: "; read id; [[ -n "$id" ]] && pct start "$id"; pause_func ;;
-            4) echo -ne "ID: "; read id; [[ -n "$id" ]] && pct stop "$id"; pause_func ;;
-            5) echo -ne "ID: "; read id; [[ -n "$id" ]] && pct reboot "$id"; pause_func ;;
+            3)
+                pct list
+                echo -ne "请输入要启动的容器 ID: "; read id
+                [[ -n "$id" ]] && pct start "$id"
+                pause_func
+                ;;
+            4)
+                pct list
+                echo -ne "请输入要停止的容器 ID: "; read id
+                [[ -n "$id" ]] && pct stop "$id"
+                pause_func
+                ;;
+            5)
+                pct list
+                echo -ne "请输入要重启的容器 ID: "; read id
+                [[ -n "$id" ]] && pct reboot "$id"
+                pause_func
+                ;;
             6)
-                echo -ne "ID: "; read id
+                pct list
+                echo -ne "请输入要删除的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     echo -e "${RED}警告: 将删除容器 $id 及其所有数据!${NC}"
                     echo -ne "确认删除? (y/N): "; read confirm
@@ -249,15 +265,15 @@ lxc_menu() {
                 ;;
             7)
                 pct list
-                echo -ne "ID: "; read id
+                echo -ne "请输入要进入的容器 ID: "; read id
                 [[ -n "$id" ]] && pct enter "$id"
                 pause_func
                 ;;
             8)
                 pct list
-                echo -ne "源 ID: "; read src_id
-                echo -ne "目标 ID: "; read dst_id
-                echo -ne "目标主机名: "; read dst_hn
+                echo -ne "请输入源容器 ID: "; read src_id
+                echo -ne "请输入目标容器 ID: "; read dst_id
+                echo -ne "请输入目标主机名: "; read dst_hn
                 if [[ -n "$src_id" && -n "$dst_id" && -n "$dst_hn" ]]; then
                     echo "克隆中..."
                     pct clone "$src_id" "$dst_id" --hostname "$dst_hn" --full
@@ -267,7 +283,7 @@ lxc_menu() {
                 ;;
             9)
                 pct list
-                echo -ne "ID: "; read id
+                echo -ne "请输入要修改的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     echo "当前配置:"
                     pct config "$id" | grep -E "^(memory|cores|rootfs)"
@@ -280,7 +296,8 @@ lxc_menu() {
                 pause_func
                 ;;
             a)
-                echo -ne "ID: "; read id
+                pct list
+                echo -ne "请输入要安装 Docker 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     echo "安装 Docker..."
                     pct exec "$id" -- bash -c 'apt update && apt install -y docker.io && systemctl enable docker && systemctl start docker'
@@ -289,7 +306,8 @@ lxc_menu() {
                 pause_func
                 ;;
             b)
-                echo -ne "ID: "; read id
+                pct list
+                echo -ne "请输入要安装 Docker Compose 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     echo "安装 Docker Compose..."
                     pct exec "$id" -- bash -c 'apt update && apt install -y docker-compose-plugin && docker compose version'
