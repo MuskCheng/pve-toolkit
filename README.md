@@ -192,7 +192,9 @@ bash pve-tool.sh system --info
 
 ## 📄 许可证
 
-本项目基于 [MIT](LICENSE) 许可证开源。
+[![License](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](LICENSE)
+
+本项目基于 **MIT** 许可证开源，详见 [LICENSE](LICENSE) 文件。
 
 ---
 
