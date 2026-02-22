@@ -37,36 +37,27 @@ download_latest_debian_template() {
     latest_template=$(get_latest_debian_template)
     
     if [[ -z "$latest_template" ]]; then
-        echo -e "${RED}无法获取最新 Debian 模板信息${NC}" >&2
+        echo -e "${RED}无法获取最新 Debian 模板信息${NC}"
         return 1
     fi
     
-    echo -e "${CYAN}检测到最新 Debian 模板: ${GREEN}$latest_template${NC}"
-    
     if [[ -f "$cache_dir/$latest_template" ]]; then
-        echo -e "${GREEN}模板已存在，跳过下载${NC}"
         echo "$latest_template"
         return 0
     fi
     
-    echo -e "${YELLOW}正在下载最新模板...${NC}"
     mkdir -p "$cache_dir"
     
     if curl -fSL "$template_url$latest_template" -o "$cache_dir/$latest_template" 2>/dev/null; then
-        echo -e "${GREEN}模板下载完成: $latest_template${NC}"
-        
-        echo -e "${YELLOW}清理旧版模板...${NC}"
         ls "$cache_dir"/debian-*-standard_*.tar.zst 2>/dev/null | grep -v "$latest_template" | while read -r old_template; do
-            echo -e "  ${RED}删除: ${NC}$(basename "$old_template")"
             rm -f "$old_template"
         done
-        
-        echo "$latest_template"
     else
-        echo -e "${RED}模板下载失败${NC}" >&2
         rm -f "$cache_dir/$latest_template"
         return 1
     fi
+    
+    echo "$latest_template"
 }
 
 # 颜色定义
@@ -293,7 +284,36 @@ lxc_menu() {
             1) pct list; pause_func ;;
             2)
                 echo -e "${YELLOW}=== 检查并下载最新 Debian 模板 ===${NC}"
-                latest_template=$(download_latest_debian_template)
+                latest_template=$(get_latest_debian_template)
+                
+                if [[ -z "$latest_template" ]]; then
+                    echo -e "${RED}无法获取最新 Debian 模板信息${NC}"
+                    pause_func
+                    continue
+                fi
+                
+                echo -e "${CYAN}检测到最新 Debian 模板: ${GREEN}$latest_template${NC}"
+                
+                cache_dir="/var/lib/vz/template/cache"
+                if [[ -f "$cache_dir/$latest_template" ]]; then
+                    echo -e "${GREEN}模板已存在，跳过下载${NC}"
+                else
+                    echo -e "${YELLOW}正在下载最新模板...${NC}"
+                    mkdir -p "$cache_dir"
+                    if curl -fSL "http://download.proxmox.com/images/system/$latest_template" -o "$cache_dir/$latest_template" 2>/dev/null; then
+                        echo -e "${GREEN}模板下载完成: $latest_template${NC}"
+                        ls "$cache_dir"/debian-*-standard_*.tar.zst 2>/dev/null | grep -v "$latest_template" | while read -r old_template; do
+                            echo -e "  ${RED}删除旧模板: ${NC}$(basename "$old_template")"
+                            rm -f "$old_template"
+                        done
+                    else
+                        echo -e "${RED}模板下载失败${NC}"
+                        rm -f "$cache_dir/$latest_template"
+                        pause_func
+                        continue
+                    fi
+                fi
+                
                 echo -e "${YELLOW}=== 可用 LXC 模板 ===${NC}"
                 if ls /var/lib/vz/template/cache/*.tar.zst 2>/dev/null; then
                     echo ""
