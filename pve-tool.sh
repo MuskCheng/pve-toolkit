@@ -68,6 +68,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
+DEBUG=''
 
 get_compose_cmd() {
     local lxc_id=$1
@@ -384,9 +385,13 @@ check_and_install_docker() {
         COMPOSE_INSTALL_SUCCESS=0
         
         echo -e "${YELLOW}安装必要工具 (curl/wget)...${NC}"
-        if ! pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl wget' 2>&1; then
-            echo -e "${RED}安装 curl/wget 失败，尝试仅安装 curl...${NC}"
-            pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl' 2>&1 || true
+        CURL_INSTALL_LOG=$(pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl wget 2>&1' || true)
+        echo -e "${DEBUG}$CURL_INSTALL_LOG${NC}"
+        
+        if ! pct exec "$lxc_id" -- bash -c 'command -v curl &>/dev/null || command -v wget &>/dev/null' 2>/dev/null; then
+            echo -e "${RED}curl/wget 安装失败，尝试仅安装 curl...${NC}"
+            CURL_INSTALL_LOG=$(pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl 2>&1' || true)
+            echo -e "${DEBUG}$CURL_INSTALL_LOG${NC}"
         fi
         
         if ! pct exec "$lxc_id" -- bash -c 'command -v curl &>/dev/null || command -v wget &>/dev/null' 2>/dev/null; then
@@ -413,7 +418,11 @@ check_and_install_docker() {
         else
             echo -e "${YELLOW}获取 Docker Compose 最新版本...${NC}"
             if pct exec "$lxc_id" -- command -v curl &>/dev/null; then
-                COMPOSE_VERSION=$(pct exec "$lxc_id" -- bash -c 'curl -sL "https://api.github.com/repos/docker/compose/releases/latest" 2>/dev/null' 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+                API_RESULT=$(pct exec "$lxc_id" -- bash -c 'curl -sL --connect-timeout 10 "https://api.github.com/repos/docker/compose/releases/latest" 2>&1' || echo "")
+                COMPOSE_VERSION=$(echo "$API_RESULT" | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+                if [[ -z "$COMPOSE_VERSION" ]]; then
+                    echo -e "${YELLOW}GitHub API 访问失败，网络可能受限${NC}"
+                fi
             fi
             
             if [[ -z "$COMPOSE_VERSION" ]]; then
@@ -434,15 +443,18 @@ check_and_install_docker() {
             for url in "${COMPOSE_URLS[@]}"; do
                 echo -e "${CYAN}尝试: $url${NC}"
                 DOWNLOAD_SUCCESS=0
+                DOWNLOAD_LOG=""
                 
                 if pct exec "$lxc_id" -- command -v curl &>/dev/null; then
-                    if pct exec "$lxc_id" -- bash -c "curl -L --connect-timeout 10 --max-time 60 -f '$url' -o /usr/local/bin/docker-compose" 2>&1; then
+                    DOWNLOAD_LOG=$(pct exec "$lxc_id" -- bash -c "curl -L --connect-timeout 10 --max-time 60 -fSL '$url' -o /usr/local/bin/docker-compose 2>&1" || true)
+                    if [[ -s /usr/local/bin/docker-compose ]] || pct exec "$lxc_id" -- bash -c 'test -s /usr/local/bin/docker-compose' 2>/dev/null; then
                         DOWNLOAD_SUCCESS=1
                     fi
                 fi
                 
                 if [[ $DOWNLOAD_SUCCESS -eq 0 ]] && pct exec "$lxc_id" -- command -v wget &>/dev/null; then
-                    if pct exec "$lxc_id" -- bash -c "wget --timeout=60 -O /usr/local/bin/docker-compose '$url'" 2>&1; then
+                    DOWNLOAD_LOG=$(pct exec "$lxc_id" -- bash -c "wget --timeout=60 -O /usr/local/bin/docker-compose '$url' 2>&1" || true)
+                    if pct exec "$lxc_id" -- bash -c 'test -s /usr/local/bin/docker-compose' 2>/dev/null; then
                         DOWNLOAD_SUCCESS=1
                     fi
                 fi
@@ -450,15 +462,17 @@ check_and_install_docker() {
                 if [[ $DOWNLOAD_SUCCESS -eq 1 ]]; then
                     if pct exec "$lxc_id" -- bash -c 'chmod +x /usr/local/bin/docker-compose' 2>&1; then
                         if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
-                            echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
-                            pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
-                            COMPOSE_CMD="docker-compose"
-                            COMPOSE_INSTALL_SUCCESS=1
-                            break
+                            VERIFY_OUTPUT=$(pct exec "$lxc_id" -- docker-compose --version 2>&1 || true)
+                            if [[ -n "$VERIFY_OUTPUT" ]]; then
+                                echo -e "${GREEN}Docker Compose (二进制) 安装完成: $VERIFY_OUTPUT${NC}"
+                                COMPOSE_CMD="docker-compose"
+                                COMPOSE_INSTALL_SUCCESS=1
+                                break
+                            fi
                         fi
                     fi
                 fi
-                echo -e "${RED}下载失败，尝试下一个源...${NC}"
+                echo -e "${RED}下载失败: ${DOWNLOAD_LOG:0:100}...${NC}"
             done
             
             if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
