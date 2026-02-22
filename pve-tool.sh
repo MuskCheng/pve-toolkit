@@ -428,8 +428,21 @@ check_and_install_docker() {
                 return 1
             fi
         else
-            COMPOSE_VERSION="v2.24.0"
-            echo -e "${YELLOW}使用 Docker Compose ${COMPOSE_VERSION}${NC}"
+            echo -e "${YELLOW}获取 Docker Compose 最新版本...${NC}"
+            if [[ $HAS_CURL -eq 1 ]]; then
+                API_RESULT=$(pct exec "$lxc_id" -- bash -lc 'curl -sL --connect-timeout 10 "https://api.github.com/repos/docker/compose/releases/latest" 2>&1' || echo "")
+                COMPOSE_VERSION=$(echo "$API_RESULT" | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+                if [[ -z "$COMPOSE_VERSION" ]]; then
+                    echo -e "${YELLOW}GitHub API 访问失败，网络可能受限${NC}"
+                fi
+            fi
+            
+            if [[ -z "$COMPOSE_VERSION" ]]; then
+                COMPOSE_VERSION="v2.24.0"
+                echo -e "${YELLOW}无法获取最新版本，使用默认版本: $COMPOSE_VERSION${NC}"
+            else
+                echo -e "${GREEN}最新版本: $COMPOSE_VERSION${NC}"
+            fi
             
             echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
             COMPOSE_URLS=(
@@ -437,6 +450,9 @@ check_and_install_docker() {
                 "https://mirrors.ustc.edu.cn/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
                 "https://ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
                 "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+                "https://gh.xxooo.cf/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+                "https://edgeone.gh-proxy.org/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+                "https://gh.nxnow.top/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
             )
             
             for url in "${COMPOSE_URLS[@]}"; do
