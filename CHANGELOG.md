@@ -2,6 +2,23 @@
 
 所有重要的更改都将记录在此文件中。
 
+## [V0.5.14] - 2026-02-22
+
+### 新增
+
+- **Docker 换源功能**
+  - Docker 管理菜单新增"换源"选项
+  - 支持多个国内镜像源：阿里云、中科大、网易、腾讯云、Docker中国
+  - 支持自定义镜像源
+  - 自动配置 /etc/docker/daemon.json
+  - 自动重启 Docker 服务并验证
+
+### 修复
+
+- **Docker Compose 路径问题**
+  - 使用完整路径调用 docker-compose（/usr/local/bin/docker-compose）
+  - 解决容器内 PATH 未包含 /usr/local/bin 导致命令找不到的问题
+
 ## [V0.5.13] - 2026-02-22
 
 ### 修复

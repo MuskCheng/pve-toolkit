@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.13"
+    VERSION="V0.5.14"
 fi
 
 # 查询 GitHub 最新版本
@@ -554,6 +554,7 @@ docker_menu() {
         echo -e "  ${GREEN}[2]${NC} Docker 部署向导"
         echo -e "  ${GREEN}[3]${NC} Docker Compose 部署向导"
         echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
+        echo -e "  ${GREEN}[5]${NC} Docker 换源"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -630,9 +631,126 @@ docker_menu() {
                 fi
                 pause_func
                 ;;
+            5)
+                docker_change_registry
+                ;;
             0) break ;;
         esac
     done
+}
+
+docker_change_registry() {
+    clear
+    echo -e "${BLUE}════════ Docker 换源 ════════${NC}"
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    if ! pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null && \
+       ! pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
+        echo -e "${RED}错误: 容器中未安装 Docker${NC}"
+        pause_func
+        return
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}选择镜像源:${NC}"
+    echo -e "  ${GREEN}[1]${NC} 阿里云 (推荐国内用户)"
+    echo -e "  ${GREEN}[2]${NC} 中科大"
+    echo -e "  ${GREEN}[3]${NC} 网易"
+    echo -e "  ${GREEN}[4]${NC} 腾讯云"
+    echo -e "  ${GREEN}[5]${NC} Docker 中国官方镜像"
+    echo -e "  ${GREEN}[6]${NC} 自定义镜像源"
+    echo -e "  ${GREEN}[0]${NC} 取消"
+    echo -ne "${CYAN}选择: ${NC}"
+    read registry_choice
+    echo
+    
+    REGISTRY_MIRRORS=""
+    case "$registry_choice" in
+        1)
+            REGISTRY_MIRRORS="https://registry.cn-hangzhou.aliyuncs.com"
+            echo -e "${GREEN}已选择: 阿里云镜像源${NC}"
+            ;;
+        2)
+            REGISTRY_MIRRORS="https://docker.mirrors.ustc.edu.cn"
+            echo -e "${GREEN}已选择: 中科大镜像源${NC}"
+            ;;
+        3)
+            REGISTRY_MIRRORS="https://hub-mirror.c.163.com"
+            echo -e "${GREEN}已选择: 网易镜像源${NC}"
+            ;;
+        4)
+            REGISTRY_MIRRORS="https://mirror.ccs.tencentyun.com"
+            echo -e "${GREEN}已选择: 腾讯云镜像源${NC}"
+            ;;
+        5)
+            REGISTRY_MIRRORS="https://registry.docker-cn.com"
+            echo -e "${GREEN}已选择: Docker 中国官方镜像${NC}"
+            ;;
+        6)
+            echo -ne "请输入镜像源地址: "; read REGISTRY_MIRRORS
+            if [[ -z "$REGISTRY_MIRRORS" ]]; then
+                echo -e "${RED}错误: 请输入镜像源地址${NC}"
+                pause_func
+                return
+            fi
+            ;;
+        0)
+            return
+            ;;
+        *)
+            echo -e "${RED}无效选择${NC}"
+            pause_func
+            return
+            ;;
+    esac
+    
+    echo ""
+    echo -e "${YELLOW}正在配置 Docker 镜像源...${NC}"
+    
+    pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/docker' 2>/dev/null
+    
+    DAEMON_JSON=$(pct exec "$lxc_id" -- cat /etc/docker/daemon.json 2>/dev/null || echo "{}")
+    
+    if [[ "$DAEMON_JSON" == "{}" ]] || [[ -z "$DAEMON_JSON" ]]; then
+        NEW_DAEMON_JSON="{\n  \"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]\n}"
+    else
+        if echo "$DAEMON_JSON" | grep -q "registry-mirrors"; then
+            NEW_DAEMON_JSON=$(echo "$DAEMON_JSON" | sed "s|\"registry-mirrors\".*\[.*\]|\"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]|")
+        else
+            NEW_DAEMON_JSON=$(echo "$DAEMON_JSON" | sed "s|}$|,\\n  \"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]\\n}|")
+        fi
+    fi
+    
+    echo -e "$NEW_DAEMON_JSON" | pct exec "$lxc_id" -- bash -lc 'cat > /etc/docker/daemon.json'
+    
+    echo -e "${YELLOW}重启 Docker 服务...${NC}"
+    pct exec "$lxc_id" -- bash -lc 'systemctl daemon-reload 2>/dev/null || true'
+    pct exec "$lxc_id" -- bash -lc 'systemctl restart docker 2>/dev/null || service docker restart 2>/dev/null || true'
+    
+    sleep 2
+    
+    if pct exec "$lxc_id" -- bash -lc 'systemctl is-active docker &>/dev/null || service docker status &>/dev/null'; then
+        echo ""
+        echo -e "${GREEN}Docker 镜像源配置成功！${NC}"
+        echo -e "${YELLOW}当前镜像源配置:${NC}"
+        pct exec "$lxc_id" -- cat /etc/docker/daemon.json 2>/dev/null
+        echo ""
+        echo -e "${YELLOW}测试拉取镜像:${NC}"
+        echo -e "  docker pull hello-world"
+    else
+        echo -e "${RED}Docker 服务重启失败，请检查配置${NC}"
+    fi
+    
+    pause_func
 }
 
 # Docker 部署向导
