@@ -2,6 +2,20 @@
 
 所有重要的更改都将记录在此文件中。
 
+## [V0.5.12] - 2026-02-22
+
+### 修复
+
+- **容器内命令检测修复**
+  - 使用 `bash -lc` 替代 `bash -c`，确保加载用户环境变量
+  - 添加文件路径检测作为备用（`/usr/bin/docker`, `/usr/local/bin/docker-compose`）
+  - 解决 LXC 容器中 PATH 未正确设置导致命令检测失败的问题
+
+- **Docker Compose 安装改进**
+  - 添加 curl/wget 安装状态变量检测
+  - 显示 curl/wget 安装结果
+  - 使用绝对路径验证 docker-compose 安装
+
 ## [V0.5.11] - 2026-02-22
 
 ### 修复
