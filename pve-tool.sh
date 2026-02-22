@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.35"
+    VERSION="V0.5.0"
 fi
 
 # 查询 GitHub 最新版本
@@ -22,6 +22,45 @@ LATEST_VERSION=$(get_latest_version)
 if [[ -z "$LATEST_VERSION" ]]; then
     LATEST_VERSION="$VERSION"
 fi
+
+get_latest_debian_template() {
+    local template_url="http://download.proxmox.com/images/system/"
+    local templates
+    templates=$(curl -sS "$template_url" 2>/dev/null | grep -oP 'debian-13-standard_[0-9.]+-[0-9]+_amd64\.tar\.zst' | sort -V | tail -1)
+    echo "$templates"
+}
+
+download_latest_debian_template() {
+    local template_url="http://download.proxmox.com/images/system/"
+    local cache_dir="/var/lib/vz/template/cache"
+    local latest_template
+    latest_template=$(get_latest_debian_template)
+    
+    if [[ -z "$latest_template" ]]; then
+        echo -e "${RED}无法获取最新 Debian 模板信息${NC}"
+        return 1
+    fi
+    
+    echo -e "${CYAN}检测到最新 Debian 模板: ${GREEN}$latest_template${NC}"
+    
+    if [[ -f "$cache_dir/$latest_template" ]]; then
+        echo -e "${GREEN}模板已存在，跳过下载${NC}"
+        echo "$latest_template"
+        return 0
+    fi
+    
+    echo -e "${YELLOW}正在下载最新模板...${NC}"
+    mkdir -p "$cache_dir"
+    
+    if curl -fSL "$template_url$latest_template" -o "$cache_dir/$latest_template" 2>/dev/null; then
+        echo -e "${GREEN}模板下载完成: $latest_template${NC}"
+        echo "$latest_template"
+    else
+        echo -e "${RED}模板下载失败，将使用默认模板${NC}"
+        rm -f "$cache_dir/$latest_template"
+        return 1
+    fi
+}
 
 # 颜色定义
 RED='\033[0;31m'
@@ -246,20 +285,22 @@ lxc_menu() {
         case "$c" in
             1) pct list; pause_func ;;
             2)
+                echo -e "${YELLOW}=== 检查并下载最新 Debian 模板 ===${NC}"
+                latest_template=$(download_latest_debian_template)
                 echo -e "${YELLOW}=== 可用 LXC 模板 ===${NC}"
                 if ls /var/lib/vz/template/cache/*.tar.zst 2>/dev/null; then
                     echo ""
                 else
-                    echo -e "${YELLOW}未找到本地模板，将使用默认模板下载${NC}"
+                    echo -e "${YELLOW}未找到本地模板${NC}"
                 fi
                 echo -ne "容器 ID: "; read id
                 echo -ne "主机名: "; read hn
                 echo -ne "内存(MB) [2048]: "; read mem
                 echo -ne "CPU核心 [2]: "; read cores
                 echo -ne "磁盘(GB) [20]: "; read disk
-                echo -e "${YELLOW}可选模板 [debian-12-standard_12.12-1_amd64.tar.zst]: ${NC}"
+                echo -e "${YELLOW}可选模板 [默认使用最新]: ${NC}"
                 echo -ne "使用模板: "; read template
-                template=${template:-debian-12-standard_12.12-1_amd64.tar.zst}
+                template=${template:-$latest_template}
                 mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-20}
                 [[ -n "$id" && -n "$hn" ]] && pct create "$id" local:vztmpl/"$template" \
                     --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
