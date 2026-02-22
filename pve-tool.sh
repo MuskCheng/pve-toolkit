@@ -1150,8 +1150,48 @@ system_menu() {
                 pause_func
                 ;;
             3)
-                apt autoremove -y && apt autoclean
-                echo -e "${GREEN}完成${NC}"
+                clear
+                echo -e "${BLUE}═══ 系统清理 ═══${NC}"
+                echo -e "${YELLOW}清理项目:${NC}"
+                echo -e "  ${GREEN}[1]${NC} 清理 apt 缓存"
+                echo -e "  ${GREEN}[2]${NC} 清理旧内核"
+                echo -e "  ${GREEN}[3]${NC} 清理临时文件"
+                echo -e "  ${GREEN}[4]${NC} 完整清理 (全部执行)"
+                echo -e "  ${GREEN}[0]${NC} 返回"
+                echo -ne "${CYAN}选择: ${NC}"
+                read choice
+                echo
+                
+                case "$choice" in
+                    1)
+                        echo -e "${YELLOW}清理 apt 缓存...${NC}"
+                        apt clean && apt autoclean
+                        echo -e "${GREEN}apt 缓存已清理${NC}"
+                        ;;
+                    2)
+                        echo -e "${YELLOW}清理旧内核...${NC}"
+                        apt autoremove -y --purge 'pve-kernel-*' 'linux-image-*' 2>/dev/null
+                        update-grub 2>/dev/null
+                        echo -e "${GREEN}旧内核已清理${NC}"
+                        ;;
+                    3)
+                        echo -e "${YELLOW}清理临时文件...${NC}"
+                        rm -rf /tmp/* 2>/dev/null
+                        echo -e "${GREEN}临时文件已清理${NC}"
+                        ;;
+                    4)
+                        echo -e "${YELLOW}执行完整清理...${NC}"
+                        apt clean && apt autoclean
+                        apt autoremove -y
+                        rm -rf /tmp/* 2>/dev/null
+                        echo -e "${GREEN}系统清理完成${NC}"
+                        ;;
+                    0)
+                        ;;
+                    *)
+                        echo -e "${RED}无效选择${NC}"
+                        ;;
+                esac
                 pause_func
                 ;;
             4)
