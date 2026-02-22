@@ -325,6 +325,25 @@ lxc_operate_menu() {
     done
 }
 
+cidr_to_netmask() {
+    local cidr=$1
+    local mask=""
+    local full_octets=$((cidr / 8))
+    local partial_octet=$((cidr % 8))
+    
+    for ((i=0; i<4; i++)); do
+        if ((i < full_octets)); then
+            mask+="255"
+        elif ((i == full_octets)); then
+            mask+="$((256 - 2**(8-partial_octet)))"
+        else
+            mask+="0"
+        fi
+        ((i < 3)) && mask+="."
+    done
+    echo "$mask"
+}
+
 lxc_change_network() {
     clear
     echo -e "${BLUE}═══ 修改网络配置 ═══${NC}"
@@ -349,15 +368,83 @@ lxc_change_network() {
     
     NET_NAME=$(echo "$CURRENT_NET" | grep -oP 'name=\K[^,]+' || echo "eth0")
     NET_BRIDGE=$(echo "$CURRENT_NET" | grep -oP 'bridge=\K[^,]+' || echo "vmbr0")
-    NET_IP=$(echo "$CURRENT_NET" | grep -oP 'ip=\K[^,]+' || echo "未设置")
-    NET_GW=$(echo "$CURRENT_NET" | grep -oP 'gw=\K[^,]+' || echo "未设置")
+    NET_IP_RAW=$(echo "$CURRENT_NET" | grep -oP 'ip=\K[^,]+' || echo "")
+    NET_GW=$(echo "$CURRENT_NET" | grep -oP 'gw=\K[^,]+' || echo "")
+    
+    CONTAINER_RUNNING=$(pct status "$id" 2>/dev/null | grep -c "running" || echo "0")
+    
+    if [[ "$NET_IP_RAW" == "dhcp" ]]; then
+        CONFIG_MODE="DHCP (自动获取)"
+        
+        if [[ "$CONTAINER_RUNNING" -eq 1 ]]; then
+            ACTUAL_IP=$(pct exec "$id" -- ip -4 addr show "$NET_NAME" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+' | head -1)
+            ACTUAL_GW=$(pct exec "$id" -- ip route 2>/dev/null | grep default | grep -oP 'via \K[0-9.]+')
+            
+            if [[ -n "$ACTUAL_IP" && "$ACTUAL_IP" =~ ^([0-9.]+)/([0-9]+)$ ]]; then
+                IP_ADDR="${BASH_REMATCH[1]}"
+                CIDR="${BASH_REMATCH[2]}"
+                NETMASK=$(cidr_to_netmask "$CIDR")
+                [[ -z "$NET_GW" && -n "$ACTUAL_GW" ]] && NET_GW="$ACTUAL_GW"
+                
+                if command -v ipcalc &>/dev/null; then
+                    NETWORK=$(ipcalc -n "${IP_ADDR}/${CIDR}" 2>/dev/null | cut -d'=' -f2)
+                    BROADCAST=$(ipcalc -b "${IP_ADDR}/${CIDR}" 2>/dev/null | cut -d'=' -f2)
+                else
+                    NETWORK="-"
+                    BROADCAST="-"
+                fi
+            else
+                IP_ADDR="-"
+                CIDR="-"
+                NETMASK="-"
+                NETWORK="-"
+                BROADCAST="-"
+            fi
+        else
+            IP_ADDR="容器未运行"
+            CIDR="-"
+            NETMASK="-"
+            NETWORK="-"
+            BROADCAST="-"
+            [[ -z "$NET_GW" ]] && NET_GW="-"
+        fi
+        
+    elif [[ "$NET_IP_RAW" =~ ^([0-9.]+)/([0-9]+)$ ]]; then
+        IP_ADDR="${BASH_REMATCH[1]}"
+        CIDR="${BASH_REMATCH[2]}"
+        CONFIG_MODE="静态IP"
+        NETMASK=$(cidr_to_netmask "$CIDR")
+        
+        if command -v ipcalc &>/dev/null; then
+            NETWORK=$(ipcalc -n "$NET_IP_RAW" 2>/dev/null | cut -d'=' -f2)
+            BROADCAST=$(ipcalc -b "$NET_IP_RAW" 2>/dev/null | cut -d'=' -f2)
+        else
+            NETWORK="-"
+            BROADCAST="-"
+        fi
+    else
+        CONFIG_MODE="未配置"
+        IP_ADDR="-"
+        CIDR="-"
+        NETMASK="-"
+        NETWORK="-"
+        BROADCAST="-"
+        NET_GW="-"
+    fi
     
     echo ""
     echo -e "${YELLOW}当前网络配置:${NC}"
-    echo -e "  接口: ${CYAN}$NET_NAME${NC}"
-    echo -e "  网桥: ${CYAN}$NET_BRIDGE${NC}"
-    echo -e "  IP: ${CYAN}$NET_IP${NC}"
-    echo -e "  网关: ${CYAN}$NET_GW${NC}"
+    echo "┌────────────────────────────────────┐"
+    echo -e "│ ${WHITE}接口名称:${NC} ${CYAN}$(printf '%-20s' "$NET_NAME")${NC} │"
+    echo -e "│ ${WHITE}网桥:${NC}     ${CYAN}$(printf '%-20s' "$NET_BRIDGE")${NC} │"
+    echo "├────────────────────────────────────┤"
+    echo -e "│ ${WHITE}配置模式:${NC} ${CYAN}$(printf '%-20s' "$CONFIG_MODE")${NC} │"
+    echo -e "│ ${WHITE}IP 地址:${NC}  ${CYAN}$(printf '%-20s' "$IP_ADDR")${NC} │"
+    echo -e "│ ${WHITE}子网掩码:${NC} ${CYAN}$(printf '%-20s' "$NETMASK")${NC} │"
+    echo -e "│ ${WHITE}网络地址:${NC} ${CYAN}$(printf '%-20s' "$NETWORK")${NC} │"
+    echo -e "│ ${WHITE}广播地址:${NC} ${CYAN}$(printf '%-20s' "$BROADCAST")${NC} │"
+    echo -e "│ ${WHITE}网关:${NC}     ${CYAN}$(printf '%-20s' "$NET_GW")${NC} │"
+    echo "└────────────────────────────────────┘"
     echo ""
     
     echo -e "${YELLOW}选择配置方式:${NC}"
