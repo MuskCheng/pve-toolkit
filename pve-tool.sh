@@ -66,6 +66,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 DEBUG=''
@@ -236,7 +237,11 @@ lxc_menu() {
                 if [[ -n "$id" ]]; then
                     echo -e "${RED}警告: 将删除容器 $id 及其所有数据!${NC}"
                     echo -ne "确认删除? (y/N): "; read confirm
-                    [[ "$confirm" == "y" || "$confirm" == "Y" ]] && pct stop "$id" 2>/dev/null; pct destroy "$id"
+                    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+                        pct stop "$id" 2>/dev/null
+                        pct destroy "$id"
+                        echo -e "${GREEN}容器 $id 已删除${NC}"
+                    fi
                 fi
                 pause_func
                 ;;
@@ -555,6 +560,7 @@ docker_menu() {
         echo -e "  ${GREEN}[3]${NC} Docker Compose 部署向导"
         echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
         echo -e "  ${GREEN}[5]${NC} Docker 换源"
+        echo -e "  ${GREEN}[6]${NC} Docker 容器管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -634,9 +640,169 @@ docker_menu() {
             5)
                 docker_change_registry
                 ;;
+            6)
+                docker_container_menu
+                ;;
             0) break ;;
         esac
     done
+}
+
+docker_container_menu() {
+    clear
+    echo -e "${BLUE}════════ Docker 容器管理 ════════${NC}"
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    if ! pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null && \
+       ! pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
+        echo -e "${RED}错误: 容器中未安装 Docker${NC}"
+        pause_func
+        return
+    fi
+    
+    while true; do
+        clear
+        echo -e "${BLUE}════════ Docker 容器管理 [LXC: $lxc_id] ════════${NC}"
+        
+        echo -e "${YELLOW}Docker 容器列表:${NC}"
+        pct exec "$lxc_id" -- docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}" 2>/dev/null || echo "无法获取容器列表"
+        echo ""
+        
+        echo -e "  ${GREEN}[1]${NC} 查看容器详情"
+        echo -e "  ${GREEN}[2]${NC} 启动容器"
+        echo -e "  ${GREEN}[3]${NC} 停止容器"
+        echo -e "  ${GREEN}[4]${NC} 重启容器"
+        echo -e "  ${GREEN}[5]${NC} 查看容器日志"
+        echo -e "  ${GREEN}[6]${NC} 进入容器终端"
+        echo -e "  ${GREEN}[7]${NC} 删除容器"
+        echo -e "  ${GREEN}[8]${NC} 清理无用容器/镜像"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read c
+        echo
+        
+        case "$c" in
+            1) docker_container_inspect "$lxc_id" ;;
+            2) docker_container_start "$lxc_id" ;;
+            3) docker_container_stop "$lxc_id" ;;
+            4) docker_container_restart "$lxc_id" ;;
+            5) docker_container_logs "$lxc_id" ;;
+            6) docker_container_exec "$lxc_id" ;;
+            7) docker_container_rm "$lxc_id" ;;
+            8) docker_container_prune "$lxc_id" ;;
+            0) break ;;
+        esac
+    done
+}
+
+docker_container_inspect() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        pct exec "$lxc_id" -- docker inspect "$container_name" 2>/dev/null | head -100
+    fi
+    pause_func
+}
+
+docker_container_start() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        if pct exec "$lxc_id" -- docker start "$container_name" 2>/dev/null; then
+            echo -e "${GREEN}容器 $container_name 已启动${NC}"
+        else
+            echo -e "${RED}启动失败${NC}"
+        fi
+    fi
+    pause_func
+}
+
+docker_container_stop() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        if pct exec "$lxc_id" -- docker stop "$container_name" 2>/dev/null; then
+            echo -e "${GREEN}容器 $container_name 已停止${NC}"
+        else
+            echo -e "${RED}停止失败${NC}"
+        fi
+    fi
+    pause_func
+}
+
+docker_container_restart() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        if pct exec "$lxc_id" -- docker restart "$container_name" 2>/dev/null; then
+            echo -e "${GREEN}容器 $container_name 已重启${NC}"
+        else
+            echo -e "${RED}重启失败${NC}"
+        fi
+    fi
+    pause_func
+}
+
+docker_container_logs() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        echo -e "${YELLOW}最近 100 行日志:${NC}"
+        pct exec "$lxc_id" -- docker logs --tail 100 "$container_name" 2>&1
+    fi
+    pause_func
+}
+
+docker_container_exec() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        if pct exec "$lxc_id" -- docker exec -it "$container_name" sh 2>/dev/null; then
+            :
+        elif pct exec "$lxc_id" -- docker exec -it "$container_name" bash 2>/dev/null; then
+            :
+        else
+            echo -e "${RED}无法进入容器终端${NC}"
+        fi
+    fi
+    pause_func
+}
+
+docker_container_rm() {
+    local lxc_id=$1
+    echo -ne "请输入容器名称: "; read container_name
+    if [[ -n "$container_name" ]]; then
+        echo -e "${RED}警告: 将删除容器 $container_name${NC}"
+        echo -ne "确认删除? (y/N): "; read confirm
+        if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+            if pct exec "$lxc_id" -- docker rm -f "$container_name" 2>/dev/null; then
+                echo -e "${GREEN}容器 $container_name 已删除${NC}"
+            else
+                echo -e "${RED}删除失败${NC}"
+            fi
+        fi
+    fi
+    pause_func
+}
+
+docker_container_prune() {
+    local lxc_id=$1
+    echo -e "${YELLOW}清理停止的容器、无用网络和镜像...${NC}"
+    echo -ne "确认清理? (y/N): "; read confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        pct exec "$lxc_id" -- docker system prune -f
+        echo -e "${GREEN}清理完成${NC}"
+    fi
+    pause_func
 }
 
 docker_change_registry() {
@@ -713,11 +879,7 @@ docker_change_registry() {
     
     pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/docker' 2>/dev/null
     
-    pct exec "$lxc_id" -- bash -lc "cat > /etc/docker/daemon.json << 'EOF'
-{
-  \"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]
-}
-EOF"
+    pct exec "$lxc_id" -- bash -lc "echo '{\"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]}' > /etc/docker/daemon.json"
     
     echo -e "${YELLOW}验证配置文件...${NC}"
     CONFIG_CONTENT=$(pct exec "$lxc_id" -- cat /etc/docker/daemon.json 2>/dev/null)
@@ -1105,12 +1267,15 @@ docker_deploy_new() {
         return
     fi
     
-    pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
-    
-    echo ""
-    echo -e "${GREEN}部署完成!${NC}"
-    echo -e "查看容器状态: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-    echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $service_name${NC}"
+    if pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d" 2>&1; then
+        echo ""
+        echo -e "${GREEN}部署完成!${NC}"
+        echo -e "查看容器状态: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $service_name${NC}"
+    else
+        echo ""
+        echo -e "${RED}部署失败，请检查配置是否正确${NC}"
+    fi
     
     pause_func
 }
@@ -1335,11 +1500,14 @@ docker_deploy_template() {
         return
     fi
     
-    pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
-    
-    echo ""
-    echo -e "${GREEN}部署完成!${NC}"
-    echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+    if pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d" 2>&1; then
+        echo ""
+        echo -e "${GREEN}部署完成!${NC}"
+        echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+    else
+        echo ""
+        echo -e "${RED}部署失败，请检查配置是否正确${NC}"
+    fi
     
     pause_func
 }
