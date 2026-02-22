@@ -266,6 +266,7 @@ lxc_operate_menu() {
         echo -e "  ${GREEN}[4]${NC} 重启容器"
         echo -e "  ${GREEN}[5]${NC} 克隆容器"
         echo -e "  ${GREEN}[6]${NC} 修改容器资源"
+        echo -e "  ${GREEN}[7]${NC} 修改网络配置"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -316,9 +317,123 @@ lxc_operate_menu() {
                 fi
                 pause_func
                 ;;
+            7)
+                lxc_change_network
+                ;;
             0) break ;;
         esac
     done
+}
+
+lxc_change_network() {
+    clear
+    echo -e "${BLUE}═══ 修改网络配置 ═══${NC}"
+    
+    pct list
+    echo ""
+    echo -ne "请输入容器 ID: "; read id
+    
+    if [[ -z "$id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    CURRENT_NET=$(pct config "$id" | grep "^net0:" | head -1)
+    
+    if [[ -z "$CURRENT_NET" ]]; then
+        echo -e "${RED}错误: 无法获取网络配置${NC}"
+        pause_func
+        return
+    fi
+    
+    NET_NAME=$(echo "$CURRENT_NET" | grep -oP 'name=\K[^,]+' || echo "eth0")
+    NET_BRIDGE=$(echo "$CURRENT_NET" | grep -oP 'bridge=\K[^,]+' || echo "vmbr0")
+    NET_IP=$(echo "$CURRENT_NET" | grep -oP 'ip=\K[^,]+' || echo "未设置")
+    NET_GW=$(echo "$CURRENT_NET" | grep -oP 'gw=\K[^,]+' || echo "未设置")
+    
+    echo ""
+    echo -e "${YELLOW}当前网络配置:${NC}"
+    echo -e "  接口: ${CYAN}$NET_NAME${NC}"
+    echo -e "  网桥: ${CYAN}$NET_BRIDGE${NC}"
+    echo -e "  IP: ${CYAN}$NET_IP${NC}"
+    echo -e "  网关: ${CYAN}$NET_GW${NC}"
+    echo ""
+    
+    echo -e "${YELLOW}选择配置方式:${NC}"
+    echo -e "  ${GREEN}[1]${NC} 设置静态 IP"
+    echo -e "  ${GREEN}[2]${NC} 设置 DHCP"
+    echo -e "  ${GREEN}[0]${NC} 取消"
+    echo -ne "${CYAN}选择: ${NC}"
+    read net_choice
+    echo
+    
+    case "$net_choice" in
+        1)
+            echo -e "${YELLOW}=== 设置静态 IP ===${NC}"
+            echo -ne "IP 地址 (如 192.168.1.100): "; read new_ip
+            echo -ne "子网掩码 (如 24): "; read new_mask
+            echo -ne "网关 (如 192.168.1.1): "; read new_gw
+            
+            if [[ -z "$new_ip" || -z "$new_mask" || -z "$new_gw" ]]; then
+                echo -e "${RED}错误: 请填写完整信息${NC}"
+                pause_func
+                return
+            fi
+            
+            echo ""
+            echo -e "${YELLOW}确认配置:${NC}"
+            echo -e "  IP: ${CYAN}${new_ip}/${new_mask}${NC}"
+            echo -e "  网关: ${CYAN}${new_gw}${NC}"
+            echo ""
+            echo -ne "确认修改? (y/N): "; read confirm
+            
+            if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+                if pct set "$id" -net0 "name=${NET_NAME},bridge=${NET_BRIDGE},ip=${new_ip}/${new_mask},gw=${new_gw}" 2>/dev/null; then
+                    echo -e "${GREEN}配置已更新!${NC}"
+                    echo -ne "是否重启容器使配置生效? (y/N): "; read restart_confirm
+                    if [[ "$restart_confirm" == "y" || "$restart_confirm" == "Y" ]]; then
+                        echo "重启容器中..."
+                        pct reboot "$id" 2>/dev/null || { pct stop "$id" && sleep 2 && pct start "$id"; }
+                        echo -e "${GREEN}容器已重启${NC}"
+                    fi
+                else
+                    echo -e "${RED}配置失败${NC}"
+                fi
+            else
+                echo "已取消"
+            fi
+            ;;
+        2)
+            echo -e "${YELLOW}=== 设置 DHCP ===${NC}"
+            echo ""
+            echo -ne "确认切换到 DHCP 模式? (y/N): "; read confirm
+            
+            if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+                if pct set "$id" -net0 "name=${NET_NAME},bridge=${NET_BRIDGE},ip=dhcp" 2>/dev/null; then
+                    echo -e "${GREEN}配置已更新!${NC}"
+                    echo -ne "是否重启容器使配置生效? (y/N): "; read restart_confirm
+                    if [[ "$restart_confirm" == "y" || "$restart_confirm" == "Y" ]]; then
+                        echo "重启容器中..."
+                        pct reboot "$id" 2>/dev/null || { pct stop "$id" && sleep 2 && pct start "$id"; }
+                        echo -e "${GREEN}容器已重启${NC}"
+                    fi
+                else
+                    echo -e "${RED}配置失败${NC}"
+                fi
+            else
+                echo "已取消"
+            fi
+            ;;
+        0)
+            return
+            ;;
+        *)
+            echo -e "${RED}无效选择${NC}"
+            ;;
+    esac
+    
+    pause_func
 }
 
 # 获取最新 Docker Compose 版本号
