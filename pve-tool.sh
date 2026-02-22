@@ -432,11 +432,23 @@ check_and_install_docker() {
     
     if ! pct exec "$lxc_id" -- command -v docker &>/dev/null; then
         echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
-        pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin'
-        if [[ $? -eq 0 ]]; then
+        
+        if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin' 2>/dev/null; then
             echo -e "${GREEN}Docker Compose 安装完成${NC}"
+        elif pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
+            echo -e "${YELLOW}尝试使用 pip 安装 Docker Compose...${NC}"
+            if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>/dev/null; then
+                echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
+            else
+                echo -e "${RED}Docker Compose 安装失败${NC}"
+            fi
         else
-            echo -e "${YELLOW}Docker Compose 安装失败，将尝试使用 docker compose plugin${NC}"
+            echo -e "${YELLOW}尝试使用二进制方式安装 Docker Compose...${NC}"
+            if pct exec "$lxc_id" -- bash -c 'curl -L "https://github.com/docker/compose/releases/download/v2/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose' 2>/dev/null; then
+                echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
+            else
+                echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
+            fi
         fi
     else
         echo -e "${GREEN}Docker Compose 已安装${NC}"
