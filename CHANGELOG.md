@@ -2,6 +2,21 @@
 
 所有重要的更改都将记录在此文件中。
 
+## [V0.5.5] - 2026-02-22
+
+### 新增
+
+- **Docker 管理功能增强**
+  - 新增 Docker 部署向导（使用 docker run 部署单个容器）
+  - 支持在线选择热门镜像（Nginx, MySQL, PostgreSQL, Redis, MongoDB, etc.）
+  - Docker Compose 部署向导新增自定义部署（粘贴 docker-compose.yml）
+  - 所有部署向导自动检查并安装 Docker/Docker Compose
+
+### 优化
+
+- Docker 管理菜单结构调整
+- 安装 Docker 时自动包含 Docker Compose
+
 ## [V0.5.4] - 2026-02-22
 
 ### 修复
