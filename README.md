@@ -1,11 +1,11 @@
-# PVE Toolkit - Proxmox VE 管理工具集
+# PVE Toolkit - LXC 容器管理工具
 
 <div align="center">
 
 ```
 ██████╗ ██╗   ██╗███████╗    ████████╗ ██████╗  ██████╗ ██╗     
 ██╔══██╗██║   ██║██╔════╝    ╚══██╔══╝██╔═══██╗██╔═══██╗██║     
-██████╔╝██║   ██║█████╗         ██║   ██║   ██║██║   ██║██║     
+█████╔╝██║   ██║█████╗         ██║   ██║   ██║██║   ██║██║     
 ██╔═══╝ ╚██╗ ██╔╝██╔══╝         ██║   ██║   ██║██║   ██║██║     
 ██║      ╚████╔╝ ███████╗       ██║   ╚██████╔╝╚██████╔╝███████╗
 ╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
@@ -19,32 +19,19 @@
 
 </div>
 
-## 📖 项目介绍
+## 项目介绍
 
-**PVE Toolkit** 是一款专为 **Proxmox VE 9.0+** 打造的 Bash 脚本管理工具集，旨在简化 PVE 日常运维工作。
+**PVE Toolkit** 是一款专为 **Proxmox VE 9.0+** 打造的 LXC 容器管理工具，聚焦于 LXC 容器的创建、部署和 Docker 环境配置。
 
-Proxmox VE 9.0 是 Proxmox 于 2024 年底发布的最新版本，基于 **Debian 13 (Trixie)**，带来了多项重大更新：
-
-- 🚀 基于 Debian 13 (Trixie)，使用最新 Linux 内核
-- 💾 默认使用 zstd 压缩算法，备份性能大幅提升
-- 🐳 原生支持 Docker 和容器化应用
-- ⚡ 更高效的资源和网络管理
-- 🔒 更好的安全性和稳定性
-
-本工具针对 PVE 9.0 特性进行了深度优化，提供一键安装、交互式界面和命令行模式，让你的 PVE 运维更加高效便捷。
-
-## ✨ 功能特性
+## 功能特性
 
 | 模块 | 功能描述 |
 |------|---------|
-| 📦 **备份管理** | VM/LXC 备份创建、恢复、删除、清理，支持 zstd 压缩 |
-| 📊 **系统监控** | 系统状态、资源监控（CPU/内存/磁盘）、网络状态、日志查看 |
-| 🖴 **LXC 容器管理** | 容器创建（自动下载最新模板）、启动、停止、删除、克隆、进入控制台、Docker/Docker Compose 一键安装、**Docker Compose 部署向导** |
-| 💻 **VM 管理** | 虚拟机启动、停止、重启、配置修改、控制台 |
-| ⚙️ **系统管理** | 镜像源切换（PVE/DEB）、系统更新、清理 |
-| 🔧 **常用工具** | Docker/Compose 安装、NTP、htop、传感器、一键部署容器 |
+| 🖴 **LXC 容器管理** | 容器创建（自动下载最新模板）、删除、容器操作（控制台/启停/重启/克隆/资源修改）、Docker 管理 |
+| ⚙️ **系统管理** | 系统状态查看、系统更新、清理（apt缓存/旧内核/临时文件）、网络/存储信息、内核管理、日志查看、Docker 源修复 |
+| 🔄 **换源工具** | 一键切换国内镜像源（中科大/清华/阿里云/华为云） |
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
@@ -78,127 +65,121 @@ curl -sL https://cdn.jsdelivr.net/gh/MuskCheng/pve-toolkit@master/pve-tool.sh -o
 bash /tmp/pve.sh
 ```
 
-### 命令行模式
+## 菜单说明
 
-```bash
-# 备份管理
-/tmp/pve.sh backup --list
-/tmp/pve.sh backup --create 100
-/tmp/pve.sh backup --cleanup
+### 主菜单
 
-# 系统监控
-/tmp/pve.sh monitor --status
-/tmp/pve.sh monitor --vm
-bash pve-tool.sh monitor --lxc
-bash pve-tool.sh monitor --resources
-bash pve-tool.sh monitor --network
-bash pve-tool.sh monitor --logs 100
+```
+═══════════════════════════════════════════════════
+  PVE Toolkit LXC 容器管理工具
+═══════════════════════════════════════════════════
 
-# LXC 容器管理
-bash pve-tool.sh lxc --list
-bash pve-tool.sh lxc --create 104 web1 2048 2 20
-bash pve-tool.sh lxc --start 104
-bash pve-tool.sh lxc --stop 104
-bash pve-tool.sh lxc --restart 104
-bash pve-tool.sh lxc --delete 104
-bash pve-tool.sh lxc --console 104
-bash pve-tool.sh lxc --info 104
-bash pve-tool.sh lxc --install-docker 104
-bash pve-tool.sh lxc --install-compose 104
-
-# 系统管理
-bash pve-tool.sh system --sources
-bash pve-tool.sh system --mirror
-bash pve-tool.sh system --disable-enterprise
-bash pve-tool.sh system --pve-community
-bash pve-tool.sh system --update
-bash pve-tool.sh system --cleanup
-bash pve-tool.sh system --info
+  [1] LXC 容器管理
+  [2] 系统管理
+  [3] 换源工具
+  [0] 退出
 ```
 
-## 📋 功能详解
+### LXC 容器管理
 
-### 1️⃣ 备份管理
+```
+════════ LXC 容器管理 ════════
+  [1] 查看容器列表
+  [2] 创建新容器          ← 支持预装 Docker
+  [3] 删除容器
+  [4] 容器操作            ← 控制台/启停/重启/克隆/修改资源
+  [5] Docker 管理
+  [0] 返回
+```
 
-| 命令 | 说明 |
-|:-----|:-----|
-| `backup --list` | 列出所有 VM/LXC 备份 |
-| `backup --create <ID>` | 创建指定 VM/LXC 的备份 |
-| `backup --cleanup` | 清理已过期的备份（默认 7 天） |
-| `backup --restore <文件> <ID>` | 恢复备份到指定 VM/LXC |
+#### 容器操作
 
-### 2️⃣ 系统监控
+```
+════════ 容器操作 ════════
+  [1] 进入容器控制台
+  [2] 启动容器
+  [3] 停止容器
+  [4] 重启容器
+  [5] 克隆容器
+  [6] 修改容器资源
+  [0] 返回
+```
 
-| 命令 | 说明 |
-|:-----|:-----|
-| `monitor --status` | 系统状态概览（CPU、内存、磁盘、VM/LXC 数量） |
-| `monitor --vm` | 查看所有虚拟机状态 |
-| `monitor --lxc` | 查看所有 LXC 容器状态 |
-| `monitor --resources` | 资源使用阈值检查（CPU>90%、内存>90%、磁盘>85% 告警） |
-| `monitor --network` | 网络接口状态和流量统计 |
-| `monitor --logs [N]` | 查看最近 N 条系统日志（默认 50 条） |
+#### Docker 管理
 
-### 3️⃣ LXC 容器管理
-
-| 命令 | 说明 |
-|:-----|:-----|
-| `lxc --list` | 列出所有 LXC 容器 |
-| `lxc --create <ID> <名称> [内存] [核心] [磁盘]` | 创建新的 LXC 容器 |
-| `lxc --start <ID>` | 启动指定容器 |
-| `lxc --stop <ID>` | 停止指定容器 |
-| `lxc --restart <ID>` | 重启指定容器 |
-| `lxc --delete <ID>` | 删除指定容器（会确认） |
-| `lxc --console <ID>` | 进入容器控制台 |
-| `lxc --info <ID>` | 查看容器详细信息和配置 |
-| `lxc --install-docker <ID>` | 一键在容器中安装 Docker |
-| `lxc --install-compose <ID>` | 一键在容器中安装 Docker Compose |
-| `lxc --deploy-compose <ID>` | Docker Compose 部署向导（交互式创建/模板部署） |
-
-**Docker 安装特性**：
-- 支持官方 Docker 源和系统自带 docker.io
-- 自动配置 Docker 镜像加速（DaoCloud）
-- 兼容 Debian 12/13 系统
+```
+════════ Docker 管理 ════════
+  [1] 安装 Docker (含 Docker Compose)
+  [2] Docker 部署向导
+  [3] Docker Compose 部署向导
+  [4] 一键升级镜像
+  [0] 返回
+```
 
 **Docker Compose 部署向导**：
-- 交互式引导创建 docker-compose.yml
-- 预置 9 种常用服务模板：Nginx、MySQL、PostgreSQL、Redis、MongoDB、Portainer、Nginx Proxy Manager、WordPress、Uptime Kuma
-- 支持端口映射、环境变量、卷挂载配置
+- 新建服务部署（交互式创建 compose.yml）
+- 已有模板部署（9种常用服务）
+- 自定义部署（粘贴 docker-compose.yml）
 
-### 4️⃣ 系统管理
+### 系统管理
 
-| 命令 | 说明 |
-|:-----|:-----|
-| `system --sources` | 查看当前 APT 镜像源配置 |
-| `system --mirror` | 交互式选择并切换镜像源 |
-| `system --disable-enterprise` | 禁用 PVE 企业源 |
-| `system --pve-community` | 配置 PVE 社区源（中科大镜像） |
-| `system --update` | 更新系统软件包 |
-| `system --cleanup` | 清理系统（删除缓存、旧包、日志） |
-| `system --info` | 查看系统详细信息 |
+```
+════════ 系统管理 ════════
+  [1] 系统状态
+  [2] 系统更新
+  [3] 清理系统
+  [4] 网络信息
+  [5] 存储信息
+  [6] 内核管理
+  [7] 系统日志
+  [8] 修复 Docker 源
+  [0] 返回
+```
 
-**支持的镜像源**：
-- ✅ 中科大镜像
-- ✅ 清华大学镜像
-- ✅ 阿里云镜像
-- ✅ 华为云镜像
-- ✅ 腾讯云镜像
-- ✅ 网易镜像
+**清理系统**：
+- 清理 apt 缓存
+- 清理旧内核
+- 清理临时文件
+- 完整清理
 
-## ⚠️ 使用注意
+### 换源工具
 
-1. **操作前请备份数据** - 备份、恢复、删除等操作有风险
-- 部分功能需要确认才能执行
-- 建议在非生产时段进行系统更新
+```
+════════ 换源工具 ════════
+  [1] 中科大源
+  [2] 清华源
+  [3] 阿里云源
+  [4] 华为云源
+  [0] 返回
+```
 
-2. **权限要求**
-- 所有功能需要 root 权限运行
-- 请使用 `su - root` 切换后再执行
+## 功能特点
 
-## 🤝 贡献
+### LXC 容器创建
+- 自动检测并下载最新 Debian 模板
+- 支持自定义内存、CPU核心、磁盘大小
+- 创建完成后可选择立即预装 Docker 环境
+
+### Docker 环境
+- 支持 Docker Compose V1/V2 兼容
+- 部署前自动检查并安装 Docker 环境
+- 支持多种安装方式：apt → pip → 二进制
+
+### 系统清理
+- apt 缓存清理
+- 旧内核清理
+- 临时文件清理
+
+## 使用注意
+
+1. **操作前请备份数据** - 删除容器等操作不可逆
+2. **权限要求** - 所有功能需要 root 权限运行
+
+## 贡献
 
 欢迎提交 Issue 和 Pull Request！
 
-## 📄 许可证
+## 许可证
 
 [![License](https://img.shields.io/github/license/MuskCheng/pve-toolkit?style=flat)](LICENSE)
 
