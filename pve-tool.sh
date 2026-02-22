@@ -327,10 +327,11 @@ lxc_menu() {
                 echo -ne "主机名: "; read hn
                 echo -ne "内存(MB) [2048]: "; read mem
                 echo -ne "CPU核心 [2]: "; read cores
-                echo -ne "磁盘(GB) [20]: "; read disk
+                echo -e "${CYAN}💡 建议: 基础运行 4GB, 常规使用 8GB, 开发环境 16GB+${NC}"
+                echo -ne "磁盘(GB) [8]: "; read disk
                 echo -e "${YELLOW}使用模板: $latest_template${NC}"
                 template=$latest_template
-                mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-20}
+                mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-8}
                 [[ -n "$id" && -n "$hn" ]] && pct create "$id" local:vztmpl/"$template" \
                     --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
                     --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features nesting=1,keyctl=1 --start 1
