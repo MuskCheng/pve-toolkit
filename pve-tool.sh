@@ -404,13 +404,53 @@ lxc_menu() {
     done
 }
 
+# 检查并安装 Docker 和 Docker Compose
+check_and_install_docker() {
+    local lxc_id=$1
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请提供容器 ID${NC}"
+        return 1
+    fi
+    
+    echo -e "${YELLOW}检查 Docker 环境...${NC}"
+    
+    if ! pct exec "$lxc_id" -- command -v docker &>/dev/null; then
+        echo -e "${YELLOW}Docker 未安装，开始安装...${NC}"
+        pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker.io && systemctl enable docker && systemctl start docker'
+        if [[ $? -eq 0 ]]; then
+            echo -e "${GREEN}Docker 安装完成${NC}"
+        else
+            echo -e "${RED}Docker 安装失败${NC}"
+            return 1
+        fi
+    else
+        echo -e "${GREEN}Docker 已安装${NC}"
+        pct exec "$lxc_id" -- docker --version
+    fi
+    
+    if ! pct exec "$lxc_id" -- command -v docker &>/dev/null; then
+        echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
+        pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin'
+        if [[ $? -eq 0 ]]; then
+            echo -e "${GREEN}Docker Compose 安装完成${NC}"
+        else
+            echo -e "${YELLOW}Docker Compose 安装失败，将尝试使用 docker compose plugin${NC}"
+        fi
+    else
+        echo -e "${GREEN}Docker Compose 已安装${NC}"
+    fi
+    
+    return 0
+}
+
 # Docker 管理
 docker_menu() {
     while true; do
         clear
         echo -e "${BLUE}════════ Docker 管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 安装 Docker"
-        echo -e "  ${GREEN}[2]${NC} 安装 Docker Compose"
+        echo -e "  ${GREEN}[1]${NC} 安装 Docker (含 Docker Compose)"
+        echo -e "  ${GREEN}[2]${NC} Docker 部署向导"
         echo -e "  ${GREEN}[3]${NC} Docker Compose 部署向导"
         echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
         echo -e "  ${GREEN}[0]${NC} 返回"
@@ -423,30 +463,12 @@ docker_menu() {
                 pct list
                 echo -ne "请输入要安装 Docker 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    if ! pct exec "$id" -- command -v docker &>/dev/null; then
-                        echo "安装 Docker..."
-                        pct exec "$id" -- bash -c 'apt update && apt install -y docker.io && systemctl enable docker && systemctl start docker'
-                        echo -e "${GREEN}Docker 安装完成${NC}"
-                    else
-                        echo -e "${YELLOW}Docker 已安装${NC}"
-                        pct exec "$id" -- docker --version
-                    fi
+                    check_and_install_docker "$id"
                 fi
                 pause_func
                 ;;
             2)
-                pct list
-                echo -ne "请输入要安装 Docker Compose 的容器 ID: "; read id
-                if [[ -n "$id" ]]; then
-                    if ! pct exec "$id" -- command -v docker &>/dev/null; then
-                        echo -e "${RED}错误: 请先安装 Docker${NC}"
-                    else
-                        echo "安装 Docker Compose..."
-                        pct exec "$id" -- bash -c 'apt update && apt install -y docker-compose-plugin && docker compose version'
-                        echo -e "${GREEN}Docker Compose 安装完成${NC}"
-                    fi
-                fi
-                pause_func
+                docker_run_deploy
                 ;;
             3)
                 docker_deploy_menu
@@ -504,6 +526,163 @@ docker_menu() {
     done
 }
 
+# Docker 部署向导
+docker_run_deploy() {
+    clear
+    echo -e "${BLUE}════════ Docker 部署向导 ════════${NC}"
+    echo -e "${YELLOW}此向导将引导您使用 docker run 部署单个容器${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    if ! pct status "$lxc_id" | grep -q "running"; then
+        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
+        pause_func
+        return
+    fi
+    
+    check_and_install_docker "$lxc_id"
+    
+    echo ""
+    echo "=== 选择镜像 ==="
+    echo "请选择要部署的镜像:"
+    echo ""
+    echo -e "  ${GREEN}[1]${NC} nginx        - Web 服务器"
+    echo -e "  ${GREEN}[2]${NC} mysql        - MySQL 数据库"
+    echo -e "  ${GREEN}[3]${NC} postgres     - PostgreSQL 数据库"
+    echo -e "  ${GREEN}[4]${NC} redis        - Redis 缓存"
+    echo -e "  ${GREEN}[5]${NC} mongo        - MongoDB 数据库"
+    echo -e "  ${GREEN}[6]${NC} mariadb      - MariaDB 数据库"
+    echo -e "  ${GREEN}[7]${NC} rabbitmq     - RabbitMQ 消息队列"
+    echo -e "  ${GREEN}[8]${NC} elasticsearch - Elasticsearch 搜索引擎"
+    echo -e "  ${GREEN}[9]${NC} portainer    - Portainer 容器管理"
+    echo -e "  ${GREEN}[10]${NC} jellyfin    - Jellyfin 媒体服务器"
+    echo -e "  ${GREEN}[11]${NC} nextcloud   - Nextcloud 云盘"
+    echo -e "  ${GREEN}[12]${NC} custom      - 自定义镜像"
+    echo -ne "${CYAN}选择: ${NC}"
+    read image_choice
+    
+    case "$image_choice" in
+        1) IMAGE="nginx:latest" ;;
+        2) IMAGE="mysql:8" ;;
+        3) IMAGE="postgres:16" ;;
+        4) IMAGE="redis:alpine" ;;
+        5) IMAGE="mongo:7" ;;
+        6) IMAGE="mariadb:10" ;;
+        7) IMAGE="rabbitmq:3-management" ;;
+        8) IMAGE="elasticsearch:8" ;;
+        9) IMAGE="portainer/portainer-ce:latest" ;;
+        10) IMAGE="jellyfin/jellyfin:latest" ;;
+        11) IMAGE="nextcloud:latest" ;;
+        12)
+            echo -ne "请输入自定义镜像 (如 nginx:latest): "; read IMAGE
+            if [[ -z "$IMAGE" ]]; then
+                echo -e "${RED}错误: 请输入镜像${NC}"
+                pause_func
+                return
+            fi
+            ;;
+        *)
+            echo -e "${RED}无效选择${NC}"
+            pause_func
+            return
+            ;;
+    esac
+    
+    echo ""
+    echo "=== 容器配置 ==="
+    echo -ne "容器名称 (留空自动生成): "; read container_name
+    echo -ne "端口映射 (格式: 8080:80, 多个用逗号分隔): "; read ports
+    echo -ne "环境变量 (格式: MYSQL_ROOT_PASSWORD=123456, 多个用逗号分隔): "; read envs
+    echo -ne "卷挂载 (格式: /host/path:/container/path, 多个用逗号分隔): "; read volumes
+    echo -e "重启策略: "
+    echo -e "  ${GREEN}[1]${NC} always (推荐，容器自动重启)"
+    echo -e "  ${GREEN}[2]${NC} no (不重启)"
+    echo -e "  ${GREEN}[3]${NC} unless-stopped (除非手动停止)"
+    echo -ne "选择 [1]: "; read restart_choice
+    restart_choice=${restart_choice:-1}
+    case "$restart_choice" in
+        1) RESTART="always" ;;
+        2) RESTART="no" ;;
+        3) RESTART="unless-stopped" ;;
+        *) RESTART="always" ;;
+    esac
+    
+    echo ""
+    echo "=== 确认配置 ==="
+    echo -e "${YELLOW}镜像:${NC} $IMAGE"
+    echo -e "${YELLOW}容器名称:${NC} ${container_name:-自动生成}"
+    echo -e "${YELLOW}端口:${NC} ${ports:-无}"
+    echo -e "${YELLOW}环境变量:${NC} ${envs:-无}"
+    echo -e "${YELLOW}卷挂载:${NC} ${volumes:-无}"
+    echo -e "${YELLOW}重启策略:${NC} $RESTART"
+    echo ""
+    echo -ne "确认部署? (y/N): "; read confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "已取消"
+        pause_func
+        return
+    fi
+    
+    echo ""
+    echo "=== 部署容器 ==="
+    
+    DOCKER_CMD="docker run -d --restart=$RESTART"
+    
+    if [[ -n "$container_name" ]]; then
+        DOCKER_CMD+=" --name $container_name"
+    fi
+    
+    if [[ -n "$ports" ]]; then
+        IFS=',' read -ra PORT_ARRAY <<< "$ports"
+        for port in "${PORT_ARRAY[@]}"; do
+            port=$(echo "$port" | xargs)
+            DOCKER_CMD+=" -p $port"
+        done
+    fi
+    
+    if [[ -n "$envs" ]]; then
+        IFS=',' read -ra ENV_ARRAY <<< "$envs"
+        for env in "${ENV_ARRAY[@]}"; do
+            env=$(echo "$env" | xargs)
+            DOCKER_CMD+=" -e $env"
+        done
+    fi
+    
+    if [[ -n "$volumes" ]]; then
+        IFS=',' read -ra VOL_ARRAY <<< "$volumes"
+        for vol in "${VOL_ARRAY[@]}"; do
+            vol=$(echo "$vol" | xargs)
+            DOCKER_CMD+=" -v $vol"
+        done
+    fi
+    
+    DOCKER_CMD+=" $IMAGE"
+    
+    echo "执行命令: $DOCKER_CMD"
+    pct exec "$lxc_id" -- bash -c "$DOCKER_CMD"
+    
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}部署完成!${NC}"
+        echo -e "查看容器状态: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+        CONTAINER_NAME=${container_name:-$(pct exec "$lxc_id" -- docker ps --format '{{.Names}}' | tail -1)}
+        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $CONTAINER_NAME${NC}"
+    else
+        echo -e "${RED}部署失败${NC}"
+    fi
+    
+    pause_func
+}
+
 # Docker Compose 部署向导
 docker_deploy_menu() {
     while true; do
@@ -513,6 +692,7 @@ docker_deploy_menu() {
         echo ""
         echo -e "  ${GREEN}[1]${NC} 新建服务部署"
         echo -e "  ${GREEN}[2]${NC} 已有模板部署"
+        echo -e "  ${GREEN}[3]${NC} 自定义部署 (粘贴 docker-compose.yml)"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -521,6 +701,7 @@ docker_deploy_menu() {
         case "$c" in
             1) docker_deploy_new ;;
             2) docker_deploy_template ;;
+            3) docker_deploy_custom ;;
             0) break ;;
         esac
     done
@@ -545,6 +726,8 @@ docker_deploy_new() {
         pause_func
         return
     fi
+    
+    check_and_install_docker "$lxc_id"
     
     echo ""
     echo "=== 第1步: 服务基础配置 ==="
@@ -726,6 +909,8 @@ docker_deploy_template() {
         return
     fi
     
+    check_and_install_docker "$lxc_id"
+    
     case "$TEMPLATE" in
         nginx)
             COMPOSE_FILE="services:
@@ -885,6 +1070,72 @@ docker_deploy_template() {
     echo ""
     echo -e "${GREEN}部署完成!${NC}"
     echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+    
+    pause_func
+}
+
+# 自定义 docker-compose 部署
+docker_deploy_custom() {
+    clear
+    echo -e "${BLUE}═══ 自定义部署 ═══${NC}"
+    echo -e "${YELLOW}请输入您准备好的 docker-compose.yml 内容${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    if ! pct status "$lxc_id" | grep -q "running"; then
+        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
+        pause_func
+        return
+    fi
+    
+    check_and_install_docker "$lxc_id"
+    
+    echo ""
+    echo "=== 输入 docker-compose.yml 内容 ==="
+    echo -e "${YELLOW}请粘贴 docker-compose.yml 内容（完成后按 Ctrl+D）:${NC}"
+    echo ""
+    
+    COMPOSE_CONTENT=$(cat)
+    
+    if [[ -z "$COMPOSE_CONTENT" ]]; then
+        echo -e "${RED}错误: docker-compose.yml 内容不能为空${NC}"
+        pause_func
+        return
+    fi
+    
+    echo ""
+    echo "=== 预览配置 ==="
+    echo "$COMPOSE_CONTENT"
+    echo ""
+    echo -ne "确认部署? (y/N): "; read confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "已取消"
+        pause_func
+        return
+    fi
+    
+    echo ""
+    echo "=== 部署中 ==="
+    echo "$COMPOSE_CONTENT" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
+    pct exec "$lxc_id" -- bash -c 'cd /tmp && docker compose -f /tmp/docker-compose.yml up -d'
+    
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}部署完成!${NC}"
+        echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker compose -f /tmp/docker-compose.yml logs${NC}"
+    else
+        echo -e "${RED}部署失败，请检查配置是否正确${NC}"
+    fi
     
     pause_func
 }
