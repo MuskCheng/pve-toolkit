@@ -343,9 +343,27 @@ lxc_menu() {
                 echo -e "${YELLOW}使用模板: $latest_template${NC}"
                 template=$latest_template
                 mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-8}
-                [[ -n "$id" && -n "$hn" ]] && pct create "$id" local:vztmpl/"$template" \
-                    --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
-                    --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features nesting=1,keyctl=1 --start 1
+                if [[ -n "$id" && -n "$hn" ]]; then
+                    pct create "$id" local:vztmpl/"$template" \
+                        --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
+                        --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features nesting=1,keyctl=1 --start 1
+                    
+                    if [[ $? -eq 0 ]]; then
+                        echo ""
+                        echo -e "${GREEN}容器创建成功!${NC}"
+                        echo ""
+                        echo -ne "是否立即预装 Docker 环境? (y/N): "; read install_docker
+                        if [[ "$install_docker" == "y" || "$install_docker" == "Y" ]]; then
+                            echo ""
+                            echo -e "${YELLOW}正在安装 Docker 环境...${NC}"
+                            if check_and_install_docker "$id"; then
+                                echo -e "${GREEN}Docker 环境安装完成!${NC}"
+                            else
+                                echo -e "${RED}Docker 环境安装失败，请稍后手动安装${NC}"
+                            fi
+                        fi
+                    fi
+                fi
                 pause_func
                 ;;
             3)
@@ -443,23 +461,30 @@ check_and_install_docker() {
     
     if ! pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null || docker compose version &>/dev/null' 2>/dev/null; then
         echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
+        COMPOSE_INSTALL_SUCCESS=0
         
         if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin' 2>/dev/null; then
             echo -e "${GREEN}Docker Compose 安装完成${NC}"
+            COMPOSE_INSTALL_SUCCESS=1
         elif pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
             echo -e "${YELLOW}尝试使用 pip 安装 Docker Compose...${NC}"
             if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>/dev/null; then
                 echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
-            else
-                echo -e "${RED}Docker Compose 安装失败${NC}"
+                COMPOSE_INSTALL_SUCCESS=1
             fi
-        else
+        fi
+        
+        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
             echo -e "${YELLOW}尝试使用二进制方式安装 Docker Compose...${NC}"
             if pct exec "$lxc_id" -- bash -c 'curl -L "https://github.com/docker/compose/releases/download/v2/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose' 2>/dev/null; then
                 echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
-            else
-                echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
+                COMPOSE_INSTALL_SUCCESS=1
             fi
+        fi
+        
+        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
+            echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
+            return 1
         fi
     else
         echo -e "${GREEN}Docker Compose 已安装${NC}"
@@ -759,7 +784,12 @@ docker_deploy_new() {
         return
     fi
     
-    check_and_install_docker "$lxc_id"
+    echo ""
+    if ! check_and_install_docker "$lxc_id"; then
+        echo -e "${RED}Docker 环境检查失败，无法继续部署${NC}"
+        pause_func
+        return
+    fi
     
     echo ""
     echo "=== 第1步: 服务基础配置 ==="
@@ -943,12 +973,19 @@ docker_deploy_template() {
     fi
     
     if ! pct status "$lxc_id" | grep -q "running"; then
-        echo -e "${RED}错误: 容器 $lxc_id 未运行${NC}"
+        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
         pause_func
         return
     fi
     
-    check_and_install_docker "$lxc_id"
+    echo ""
+    if ! check_and_install_docker "$lxc_id"; then
+        echo -e "${RED}Docker 环境检查失败，无法继续部署${NC}"
+        pause_func
+        return
+    fi
+    
+    echo ""
     
     case "$TEMPLATE" in
         nginx)
@@ -1144,7 +1181,12 @@ docker_deploy_custom() {
         return
     fi
     
-    check_and_install_docker "$lxc_id"
+    echo ""
+    if ! check_and_install_docker "$lxc_id"; then
+        echo -e "${RED}Docker 环境检查失败，无法继续部署${NC}"
+        pause_func
+        return
+    fi
     
     echo ""
     echo "=== 输入 docker-compose.yml 内容 ==="
