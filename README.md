@@ -119,13 +119,16 @@ bash /tmp/pve.sh
 #### Docker 管理
 
 ```
-══════════════════════════ Docker 管理 ═══════════════════
+════════════════════════ Docker 管理 ══════════════════
   [1] 🐳 安装 Docker (含 Docker Compose)
   [2] 📦 Docker 部署向导
   [3] 📜 Docker Compose 部署向导
   [4] 🔄 一键升级镜像
+  [5] 🌐 Docker 换源
   [0] 🔙 返回
 ```
+
+> **Docker 换源**：支持阿里云、中科大、网易、腾讯云、Docker中国等国内镜像源
 
 > **Docker Compose 部署向导**：新建服务部署 / 已有模板部署 / 自定义部署
 
@@ -174,6 +177,7 @@ bash /tmp/pve.sh
 - 🔄 支持 Docker Compose V1/V2 兼容
 - ✅ 部署前自动检查并安装 Docker 环境
 - 📦 支持多种安装方式：apt → pip → 二进制
+- 🌐 一键切换 Docker 镜像源，解决国内拉取镜像慢的问题
 
 ### 🧹 系统清理
 - 📦 apt 缓存清理
