@@ -308,9 +308,8 @@ lxc_menu() {
                 echo -ne "内存(MB) [2048]: "; read mem
                 echo -ne "CPU核心 [2]: "; read cores
                 echo -ne "磁盘(GB) [20]: "; read disk
-                echo -e "${YELLOW}可选模板 [默认使用最新]: ${NC}"
-                echo -ne "使用模板: "; read template
-                template=${template:-$latest_template}
+                echo -e "${YELLOW}使用模板: $latest_template${NC}"
+                template=$latest_template
                 mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-20}
                 [[ -n "$id" && -n "$hn" ]] && pct create "$id" local:vztmpl/"$template" \
                     --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
