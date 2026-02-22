@@ -69,6 +69,17 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+get_compose_cmd() {
+    local lxc_id=$1
+    if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+        echo "docker-compose"
+    elif pct exec "$lxc_id" -- bash -c 'docker compose version &>/dev/null' 2>/dev/null; then
+        echo "docker compose"
+    else
+        echo ""
+    fi
+}
+
 # 暂停函数
 pause_func() {
     echo -ne "${YELLOW}按任意键继续...${NC} "
@@ -515,18 +526,26 @@ docker_menu() {
                     
                     echo ""
                     echo -e "${YELLOW}=== 升级流程 ===${NC}"
+                    
+                    COMPOSE_CMD=$(get_compose_cmd "$id")
+                    if [[ -z "$COMPOSE_CMD" ]]; then
+                        echo -e "${RED}Docker Compose 未安装${NC}"
+                        pause_func
+                        continue
+                    fi
+                    
                     echo -e "1. 停止容器..."
-                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose stop"
+                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD stop"
                     
                     echo -e "2. 拉取最新镜像..."
-                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose pull"
+                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD pull"
                     
                     echo -e "3. 重启容器..."
-                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose up -d"
+                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD up -d"
                     
                     echo ""
                     echo -e "${YELLOW}=== 升级后的容器状态 ===${NC}"
-                    pct exec "$id" -- bash -c "cd $compose_dir && docker compose ps"
+                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD ps"
                     
                     echo ""
                     echo -e "${GREEN}镜像升级完成！${NC}"
@@ -862,8 +881,15 @@ docker_deploy_new() {
     echo "正在部署到 LXC $lxc_id ..."
     echo "$COMPOSE_FILE" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
     
+    COMPOSE_CMD=$(get_compose_cmd "$lxc_id")
+    if [[ -z "$COMPOSE_CMD" ]]; then
+        echo -e "${RED}Docker Compose 未安装${NC}"
+        pause_func
+        return
+    fi
+    
     cd /tmp 2>/dev/null || pct exec "$lxc_id" -- bash -c 'cd /tmp'
-    pct exec "$lxc_id" -- bash -c 'docker compose -f /tmp/docker-compose.yml up -d'
+    pct exec "$lxc_id" -- bash -c "$COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
     
     echo ""
     echo -e "${GREEN}部署完成!${NC}"
@@ -1078,7 +1104,15 @@ docker_deploy_template() {
     
     echo "正在部署..."
     echo "$COMPOSE_FILE" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
-    pct exec "$lxc_id" -- bash -c 'cd /tmp && docker compose -f /tmp/docker-compose.yml up -d'
+    
+    COMPOSE_CMD=$(get_compose_cmd "$lxc_id")
+    if [[ -z "$COMPOSE_CMD" ]]; then
+        echo -e "${RED}Docker Compose 未安装${NC}"
+        pause_func
+        return
+    fi
+    
+    pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
     
     echo ""
     echo -e "${GREEN}部署完成!${NC}"
@@ -1139,13 +1173,21 @@ docker_deploy_custom() {
     echo ""
     echo "=== 部署中 ==="
     echo "$COMPOSE_CONTENT" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
-    pct exec "$lxc_id" -- bash -c 'cd /tmp && docker compose -f /tmp/docker-compose.yml up -d'
+    
+    COMPOSE_CMD=$(get_compose_cmd "$lxc_id")
+    if [[ -z "$COMPOSE_CMD" ]]; then
+        echo -e "${RED}Docker Compose 未安装${NC}"
+        pause_func
+        return
+    fi
+    
+    pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
     
     if [[ $? -eq 0 ]]; then
         echo ""
         echo -e "${GREEN}部署完成!${NC}"
         echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker compose -f /tmp/docker-compose.yml logs${NC}"
+        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- $COMPOSE_CMD -f /tmp/docker-compose.yml logs${NC}"
     else
         echo -e "${RED}部署失败，请检查配置是否正确${NC}"
     fi
