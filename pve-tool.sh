@@ -72,8 +72,9 @@ DEBUG=''
 
 get_compose_cmd() {
     local lxc_id=$1
-    if pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null || \
-       pct exec "$lxc_id" -- test -x /usr/local/bin/docker-compose 2>/dev/null; then
+    if pct exec "$lxc_id" -- test -x /usr/local/bin/docker-compose 2>/dev/null; then
+        echo "/usr/local/bin/docker-compose"
+    elif pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null; then
         echo "docker-compose"
     elif pct exec "$lxc_id" -- bash -lc 'docker compose version &>/dev/null' 2>/dev/null; then
         echo "docker compose"
@@ -376,11 +377,14 @@ check_and_install_docker() {
     COMPOSE_VERSION=""
     COMPOSE_CMD=""
     
-    if pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null || \
-       pct exec "$lxc_id" -- test -x /usr/local/bin/docker-compose 2>/dev/null; then
+    if pct exec "$lxc_id" -- test -x /usr/local/bin/docker-compose 2>/dev/null; then
+        COMPOSE_CMD="/usr/local/bin/docker-compose"
+        echo -e "${GREEN}Docker Compose 已安装 (docker-compose)${NC}"
+        pct exec "$lxc_id" -- /usr/local/bin/docker-compose --version 2>/dev/null || true
+    elif pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null; then
         COMPOSE_CMD="docker-compose"
         echo -e "${GREEN}Docker Compose 已安装 (docker-compose)${NC}"
-        pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || pct exec "$lxc_id" -- /usr/local/bin/docker-compose --version 2>/dev/null || true
+        pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
     elif pct exec "$lxc_id" -- bash -lc 'docker compose version &>/dev/null' 2>/dev/null; then
         COMPOSE_CMD="docker compose"
         echo -e "${GREEN}Docker Compose 已安装 (docker compose plugin)${NC}"
@@ -410,9 +414,10 @@ check_and_install_docker() {
             if pct exec "$lxc_id" -- bash -lc 'command -v pip3 &>/dev/null' 2>/dev/null || \
                pct exec "$lxc_id" -- test -x /usr/bin/pip3 2>/dev/null; then
                 if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
-                    if pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null; then
-                        echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
-                        COMPOSE_CMD="docker-compose"
+                    PIP_COMPOSE_PATH=$(pct exec "$lxc_id" -- bash -lc 'command -v docker-compose 2>/dev/null' || echo "")
+                    if [[ -n "$PIP_COMPOSE_PATH" ]]; then
+                        echo -e "${GREEN}Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH${NC}"
+                        COMPOSE_CMD="$PIP_COMPOSE_PATH"
                         pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
                         COMPOSE_INSTALL_SUCCESS=1
                     fi
@@ -499,7 +504,7 @@ check_and_install_docker() {
                     VERIFY_OUTPUT=$(pct exec "$lxc_id" -- bash -lc '/usr/local/bin/docker-compose --version 2>&1' || true)
                     if [[ "$VERIFY_OUTPUT" =~ Docker\ Compose ]]; then
                         echo -e "${GREEN}Docker Compose (二进制) 安装完成: $VERIFY_OUTPUT${NC}"
-                        COMPOSE_CMD="docker-compose"
+                        COMPOSE_CMD="/usr/local/bin/docker-compose"
                         COMPOSE_INSTALL_SUCCESS=1
                         break
                     else
@@ -515,9 +520,10 @@ check_and_install_docker() {
                 if pct exec "$lxc_id" -- bash -lc 'command -v pip3 &>/dev/null' 2>/dev/null || \
                    pct exec "$lxc_id" -- test -x /usr/bin/pip3 2>/dev/null; then
                     if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
-                        if pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null; then
-                            echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
-                            COMPOSE_CMD="docker-compose"
+                        PIP_COMPOSE_PATH=$(pct exec "$lxc_id" -- bash -lc 'command -v docker-compose 2>/dev/null' || echo "")
+                        if [[ -n "$PIP_COMPOSE_PATH" ]]; then
+                            echo -e "${GREEN}Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH${NC}"
+                            COMPOSE_CMD="$PIP_COMPOSE_PATH"
                             pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
                             COMPOSE_INSTALL_SUCCESS=1
                         fi
