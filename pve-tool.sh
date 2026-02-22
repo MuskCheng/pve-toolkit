@@ -324,18 +324,31 @@ check_and_install_docker() {
     
     echo -e "${YELLOW}检查 Docker 环境...${NC}"
     
-    if ! pct exec "$lxc_id" -- command -v docker &>/dev/null; then
-        echo -e "${YELLOW}Docker 未安装，开始安装...${NC}"
-        pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker.io && systemctl enable docker && systemctl start docker'
-        if [[ $? -eq 0 ]]; then
-            echo -e "${GREEN}Docker 安装完成${NC}"
-        else
-            echo -e "${RED}Docker 安装失败${NC}"
-            return 1
-        fi
-    else
+    DOCKER_AVAILABLE=0
+    
+    if pct exec "$lxc_id" -- docker --version &>/dev/null; then
         echo -e "${GREEN}Docker 已安装${NC}"
         pct exec "$lxc_id" -- docker --version
+        DOCKER_AVAILABLE=1
+    else
+        echo -e "${YELLOW}Docker 未安装，开始安装...${NC}"
+        echo -e "${YELLOW}安装 Docker...${NC}"
+        
+        if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker.io' 2>&1; then
+            pct exec "$lxc_id" -- bash -c 'systemctl enable docker 2>/dev/null || true'
+            pct exec "$lxc_id" -- bash -c 'systemctl start docker 2>/dev/null || true'
+            
+            if pct exec "$lxc_id" -- docker --version &>/dev/null; then
+                echo -e "${GREEN}Docker 安装完成${NC}"
+                pct exec "$lxc_id" -- docker --version
+                DOCKER_AVAILABLE=1
+            fi
+        fi
+    fi
+    
+    if [[ $DOCKER_AVAILABLE -eq 0 ]]; then
+        echo -e "${RED}Docker 安装失败${NC}"
+        return 1
     fi
     
     if ! pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null || docker compose version &>/dev/null' 2>/dev/null; then
@@ -729,7 +742,7 @@ docker_deploy_new() {
         IFS=',' read -ra ENV_ARRAY <<< "$envs"
         for env in "${ENV_ARRAY[@]}"; do
             env=$(echo "$env" | xargs)
-            env_config+="      - $env\n"
+            env_config+="      - \"$env\"\n"
         done
     fi
     
@@ -816,8 +829,7 @@ docker_deploy_new() {
         return
     fi
     
-    cd /tmp 2>/dev/null || pct exec "$lxc_id" -- bash -c 'cd /tmp'
-    pct exec "$lxc_id" -- bash -c "$COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
+    pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
     
     echo ""
     echo -e "${GREEN}部署完成!${NC}"
