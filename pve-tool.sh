@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.1"
+    VERSION="V0.5.2"
 fi
 
 # 查询 GitHub 最新版本
@@ -37,7 +37,7 @@ download_latest_debian_template() {
     latest_template=$(get_latest_debian_template)
     
     if [[ -z "$latest_template" ]]; then
-        echo -e "${RED}无法获取最新 Debian 模板信息${NC}"
+        echo -e "${RED}无法获取最新 Debian 模板信息${NC}" >&2
         return 1
     fi
     
@@ -63,7 +63,7 @@ download_latest_debian_template() {
         
         echo "$latest_template"
     else
-        echo -e "${RED}模板下载失败，将使用默认模板${NC}"
+        echo -e "${RED}模板下载失败${NC}" >&2
         rm -f "$cache_dir/$latest_template"
         return 1
     fi
