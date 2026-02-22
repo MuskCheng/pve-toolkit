@@ -342,23 +342,42 @@ check_and_install_docker() {
         echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
         COMPOSE_INSTALL_SUCCESS=0
         
-        if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin' 2>/dev/null; then
-            echo -e "${GREEN}Docker Compose 安装完成${NC}"
-            COMPOSE_INSTALL_SUCCESS=1
-        elif pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
-            echo -e "${YELLOW}尝试使用 pip 安装 Docker Compose...${NC}"
-            if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>/dev/null; then
-                echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
+        echo -e "${YELLOW}尝试使用 apt 安装...${NC}"
+        if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin' 2>&1 | tee /tmp/apt_install.log; then
+            if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null || docker compose version &>/dev/null' 2>/dev/null; then
+                echo -e "${GREEN}Docker Compose 安装完成${NC}"
                 COMPOSE_INSTALL_SUCCESS=1
             fi
         fi
         
-        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
-            echo -e "${YELLOW}尝试使用二进制方式安装 Docker Compose...${NC}"
-            if pct exec "$lxc_id" -- bash -c 'curl -L "https://github.com/docker/compose/releases/download/v2/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose' 2>/dev/null; then
-                echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
-                COMPOSE_INSTALL_SUCCESS=1
+        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]] && pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
+            echo -e "${YELLOW}尝试使用 pip 安装...${NC}"
+            if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
+                if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+                    echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
+                    COMPOSE_INSTALL_SUCCESS=1
+                fi
             fi
+        fi
+        
+        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
+            echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
+            COMPOSE_URLS=(
+                "https://github.com/docker/compose/releases/download/v2/docker-compose-linux-x86_64"
+                "https://ghproxy.com/https://github.com/docker/compose/releases/download/v2/docker-compose-linux-x86_64"
+                "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/v2/docker-compose-linux-x86_64"
+            )
+            
+            for url in "${COMPOSE_URLS[@]}"; do
+                echo -e "${CYAN}尝试: $url${NC}"
+                if pct exec "$lxc_id" -- bash -c "curl -L '$url' -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose" 2>&1; then
+                    if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+                        echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
+                        COMPOSE_INSTALL_SUCCESS=1
+                        break
+                    fi
+                fi
+            done
         fi
         
         if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
