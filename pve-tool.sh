@@ -667,14 +667,10 @@ docker_change_registry() {
     echo ""
     
     echo -e "${YELLOW}选择镜像源:${NC}"
-    echo -e "  ${GREEN}[1]${NC} 轩辕镜像免费版 (推荐，非常稳定)"
-    echo -e "  ${GREEN}[2]${NC} KSpeeder (推荐)"
-    echo -e "  ${GREEN}[3]${NC} 南京大学 (推荐)"
-    echo -e "  ${GREEN}[4]${NC} 阿里云 (仅阿里云服务器推荐)"
-    echo -e "  ${GREEN}[5]${NC} 腾讯云 (仅腾讯云服务器推荐)"
-    echo -e "  ${GREEN}[6]${NC} 网易"
-    echo -e "  ${GREEN}[7]${NC} 多镜像源 (推荐，自动配置多个备用源)"
-    echo -e "  ${GREEN}[8]${NC} 自定义镜像源"
+    echo -e "  ${GREEN}[1]${NC} DaoCloud (推荐)"
+    echo -e "  ${GREEN}[2]${NC} 轩辕镜像免费版"
+    echo -e "  ${GREEN}[3]${NC} KSpeeder"
+    echo -e "  ${GREEN}[4]${NC} 自定义镜像源"
     echo -e "  ${GREEN}[0]${NC} 取消"
     echo -ne "${CYAN}选择: ${NC}"
     read registry_choice
@@ -683,35 +679,18 @@ docker_change_registry() {
     REGISTRY_MIRRORS=""
     case "$registry_choice" in
         1)
+            REGISTRY_MIRRORS="https://docker.m.daocloud.io"
+            echo -e "${GREEN}已选择: DaoCloud 镜像源${NC}"
+            ;;
+        2)
             REGISTRY_MIRRORS="https://docker.xuanyuan.me"
             echo -e "${GREEN}已选择: 轩辕镜像免费版${NC}"
             ;;
-        2)
+        3)
             REGISTRY_MIRRORS="https://registry.linkease.net:5443"
             echo -e "${GREEN}已选择: KSpeeder 镜像源${NC}"
             ;;
-        3)
-            REGISTRY_MIRRORS="https://docker.nju.edu.cn"
-            echo -e "${GREEN}已选择: 南京大学镜像源${NC}"
-            ;;
         4)
-            REGISTRY_MIRRORS="https://registry.cn-hangzhou.aliyuncs.com"
-            echo -e "${GREEN}已选择: 阿里云镜像源${NC}"
-            echo -e "${YELLOW}注意: 阿里云镜像源仅推荐在阿里云服务器上使用${NC}"
-            ;;
-        5)
-            REGISTRY_MIRRORS="https://mirror.ccs.tencentyun.com"
-            echo -e "${GREEN}已选择: 腾讯云镜像源${NC}"
-            echo -e "${YELLOW}注意: 腾讯云镜像源仅推荐在腾讯云服务器上使用${NC}"
-            ;;
-        6)
-            REGISTRY_MIRRORS="https://hub-mirror.c.163.com"
-            echo -e "${GREEN}已选择: 网易镜像源${NC}"
-            ;;
-        7)
-            echo -e "${GREEN}已选择: 多镜像源 (自动配置多个备用源)${NC}"
-            ;;
-        8)
             echo -ne "请输入镜像源地址: "; read REGISTRY_MIRRORS
             if [[ -z "$REGISTRY_MIRRORS" ]]; then
                 echo -e "${RED}错误: 请输入镜像源地址${NC}"
@@ -734,25 +713,11 @@ docker_change_registry() {
     
     pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/docker' 2>/dev/null
     
-    if [[ "$registry_choice" == "7" ]]; then
-        pct exec "$lxc_id" -- bash -lc "cat > /etc/docker/daemon.json << 'EOF'
-{
-  \"registry-mirrors\": [
-    \"https://docker.xuanyuan.me\",
-    \"https://registry.linkease.net:5443\",
-    \"https://docker.nju.edu.cn\",
-    \"https://mirror.ccs.tencentyun.com\",
-    \"https://hub-mirror.c.163.com\"
-  ]
-}
-EOF"
-    else
-        pct exec "$lxc_id" -- bash -lc "cat > /etc/docker/daemon.json << 'EOF'
+    pct exec "$lxc_id" -- bash -lc "cat > /etc/docker/daemon.json << 'EOF'
 {
   \"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]
 }
 EOF"
-    fi
     
     echo -e "${YELLOW}验证配置文件...${NC}"
     CONFIG_CONTENT=$(pct exec "$lxc_id" -- cat /etc/docker/daemon.json 2>/dev/null)
