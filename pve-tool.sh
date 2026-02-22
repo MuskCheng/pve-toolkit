@@ -430,7 +430,7 @@ check_and_install_docker() {
         pct exec "$lxc_id" -- docker --version
     fi
     
-    if ! pct exec "$lxc_id" -- command -v docker &>/dev/null; then
+    if ! pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null || docker compose version &>/dev/null' 2>/dev/null; then
         echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
         
         if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker-compose-plugin' 2>/dev/null; then
