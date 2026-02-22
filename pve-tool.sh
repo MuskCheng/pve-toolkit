@@ -1385,7 +1385,7 @@ main() {
     
     while true; do
         show_menu
-        echo -ne "${CYAN}选择 [0-7]: ${NC}"
+        echo -ne "${CYAN}选择 [0-3]: ${NC}"
         read choice
         echo
         
