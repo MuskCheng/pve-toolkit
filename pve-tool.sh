@@ -128,147 +128,13 @@ EOF
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "${WHITE}请选择您需要的功能:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-    echo -e "  ${GREEN}[1]${NC} 备份管理          - 备份/恢复/清理 VM 和 LXC"
-    echo -e "  ${GREEN}[2]${NC} 系统监控          - 查看系统状态和资源使用"
-    echo -e "  ${GREEN}[3]${NC} LXC 容器管理     - 容器创建/启停/克隆/部署"
-    echo -e "  ${GREEN}[4]${NC} VM 管理          - 虚拟机启动/停止/配置"
-    echo -e "  ${GREEN}[5]${NC} 系统管理          - 系统更新/清理/换源"
-    echo -e "  ${GREEN}[6]${NC} 换源工具          - 切换国内镜像源"
-    echo -e "  ${GREEN}[7]${NC} 常用工具          - Docker/容器一键部署"
+    echo -e "  ${GREEN}[1]${NC} LXC 容器管理"
+    echo -e "  ${GREEN}[2]${NC} 系统管理"
+    echo -e "  ${GREEN}[3]${NC} 换源工具"
     echo -e "  ${GREEN}[0]${NC} 退出"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "${RED}⚠️  安全提示: 操作前请备份重要数据，删除/恢复等操作不可逆${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-}
-
-# 备份管理
-backup_menu() {
-    while true; do
-        clear
-        echo -e "${BLUE}════════ 备份管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 列出备份"
-        echo -e "  ${GREEN}[2]${NC} 创建备份"
-        echo -e "  ${GREEN}[3]${NC} 恢复备份"
-        echo -e "  ${GREEN}[4]${NC} 删除备份"
-        echo -e "  ${GREEN}[5]${NC} 清理旧备份"
-        echo -e "  ${GREEN}[6]${NC} 备份统计"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
-        read c
-        echo
-        
-        case "$c" in
-            1)
-                echo -e "${BLUE}=== 备份列表 ===${NC}"
-                echo -e "${YELLOW}--- VM 备份 ---${NC}"
-                ls -lh "$BACKUP_DIR"/*.vma.zst 2>/dev/null || echo "无 VM 备份"
-                echo -e "${YELLOW}--- LXC 备份 ---${NC}"
-                ls -lh "$BACKUP_DIR"/*.tar.zst 2>/dev/null || echo "无 LXC 备份"
-                pause_func
-                ;;
-            2)
-                echo -ne "VM/LXC ID: "; read id
-                echo -ne "备份模式 (snapshot/suspend/stop) [snapshot]: "; read mode
-                mode=${mode:-snapshot}
-                [[ -n "$id" ]] && vzdump "$id" --mode "$mode" --compress zstd --storage local
-                pause_func
-                ;;
-            3)
-                echo -e "${BLUE}=== 可用备份 ===${NC}"
-                echo -e "${YELLOW}VM 备份:${NC}"
-                ls -1 "$BACKUP_DIR"/*.vma.zst 2>/dev/null | nl -w2 -s') '
-                echo -e "${YELLOW}LXC 备份:${NC}"
-                ls -1 "$BACKUP_DIR"/*.tar.zst 2>/dev/null | nl -w2 -s') '
-                echo -ne "输入备份文件完整路径: "; read backup_file
-                echo -ne "目标存储 [local]: "; read storage
-                storage=${storage:-local}
-                if [[ -f "$backup_file" ]]; then
-                    if [[ "$backup_file" == *.vma.zst ]]; then
-                        echo -ne "目标 VM ID: "; read vmid
-                        [[ -n "$vmid" ]] && qmrestore "$backup_file" "$vmid" --storage "$storage"
-                    elif [[ "$backup_file" == *.tar.zst ]]; then
-                        echo -ne "目标 LXC ID: "; read ctid
-                        [[ -n "$ctid" ]] && pct restore "$ctid" "$backup_file" --storage "$storage"
-                    fi
-                else
-                    echo -e "${RED}文件不存在${NC}"
-                fi
-                pause_func
-                ;;
-            4)
-                echo -e "${BLUE}=== 删除备份 ===${NC}"
-                echo -e "${YELLOW}VM 备份:${NC}"
-                ls -1 "$BACKUP_DIR"/*.vma.zst 2>/dev/null | nl -w2 -s') '
-                echo -e "${YELLOW}LXC 备份:${NC}"
-                ls -1 "$BACKUP_DIR"/*.tar.zst 2>/dev/null | nl -w2 -s') '
-                echo -ne "输入要删除的备份文件完整路径: "; read del_file
-                if [[ -f "$del_file" ]]; then
-                    echo -ne "确认删除? (y/N): "; read confirm
-                    [[ "$confirm" == "y" || "$confirm" == "Y" ]] && rm -f "$del_file" && echo -e "${GREEN}已删除${NC}"
-                else
-                    echo -e "${RED}文件不存在${NC}"
-                fi
-                pause_func
-                ;;
-            5)
-                echo -ne "清理多少天前的备份? [7]: "; read days
-                days=${days:-7}
-                echo "清理 $days 天前的备份..."
-                find "$BACKUP_DIR" -name "*.vma.zst" -mtime +$days -delete 2>/dev/null
-                find "$BACKUP_DIR" -name "*.tar.zst" -mtime +$days -delete 2>/dev/null
-                echo -e "${GREEN}完成${NC}"
-                pause_func
-                ;;
-            6)
-                echo -e "${BLUE}=== 备份统计 ===${NC}"
-                vm_count=$(ls "$BACKUP_DIR"/*.vma.zst 2>/dev/null | wc -l)
-                lxc_count=$(ls "$BACKUP_DIR"/*.tar.zst 2>/dev/null | wc -l)
-                vm_size=$(du -sh "$BACKUP_DIR"/*.vma.zst 2>/dev/null | tail -1 | awk '{print $1}')
-                lxc_size=$(du -sh "$BACKUP_DIR"/*.tar.zst 2>/dev/null | tail -1 | awk '{print $1}')
-                total_size=$(du -sh "$BACKUP_DIR" 2>/dev/null | awk '{print $1}')
-                echo "VM 备份数: $vm_count | 大小: ${vm_size:-0}"
-                echo "LXC 备份数: $lxc_count | 大小: ${lxc_size:-0}"
-                echo "总大小: $total_size"
-                pause_func
-                ;;
-            0) break ;;
-        esac
-    done
-}
-
-# 系统监控
-monitor_menu() {
-    while true; do
-        clear
-        echo -e "${BLUE}════════ 系统监控 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 系统状态"
-        echo -e "  ${GREEN}[2]${NC} VM 列表"
-        echo -e "  ${GREEN}[3]${NC} LXC 列表"
-        echo -e "  ${GREEN}[4]${NC} 实时监控"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
-        read c
-        echo
-        
-        case "$c" in
-            1)
-                echo -e "${BLUE}=== 系统状态 ===${NC}"
-                echo "主机: $(hostname) | PVE: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
-                echo "内核: $(uname -r)"
-                echo "CPU: $(nproc) 核 | 内存: $(free -h | awk 'NR==2{print $3"/"$2}')"
-                echo "磁盘: $(df -h / | awk 'NR==2{print $3"/"$2"("$5")"}')"
-                echo "运行中: VM $(qm list 2>/dev/null | grep running | wc -l) | LXC $(pct list 2>/dev/null | grep running | wc -l)"
-                pause_func
-                ;;
-            2) qm list; pause_func ;;
-            3) pct list; pause_func ;;
-            4)
-                echo -e "${BLUE}=== 实时监控 (Ctrl+C 退出) ===${NC}"
-                watch -n 2 "clear && echo '=== 系统资源 ===' && echo 'CPU: '$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}')'%' && free -h | awk 'NR==2{printf \"内存: %s / %s\\n\", \$3, \$2}' && df -h / | awk 'NR==2{printf \"磁盘: %s / %s (%s)\\n\", \$3, \$2, \$5}' && echo '' && echo '=== VM 状态 ===' && qm list && echo '' && echo '=== LXC 状态 ===' && pct list"
-                ;;
-            0) break ;;
-        esac
-    done
 }
 
 # LXC 管理
@@ -278,14 +144,9 @@ lxc_menu() {
         echo -e "${BLUE}════════ LXC 容器管理 ════════${NC}"
         echo -e "  ${GREEN}[1]${NC} 查看容器列表"
         echo -e "  ${GREEN}[2]${NC} 创建新容器"
-        echo -e "  ${GREEN}[3]${NC} 启动容器"
-        echo -e "  ${GREEN}[4]${NC} 停止容器"
-        echo -e "  ${GREEN}[5]${NC} 重启容器"
-        echo -e "  ${GREEN}[6]${NC} 删除容器"
-        echo -e "  ${GREEN}[7]${NC} 进入容器控制台"
-        echo -e "  ${GREEN}[8]${NC} 克隆容器"
-        echo -e "  ${GREEN}[9]${NC} 修改容器资源"
-        echo -e "  ${GREEN}[a]${NC} Docker 管理"
+        echo -e "  ${GREEN}[3]${NC} 删除容器"
+        echo -e "  ${GREEN}[4]${NC} 容器操作"
+        echo -e "  ${GREEN}[5]${NC} Docker 管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -338,7 +199,7 @@ lxc_menu() {
                 echo -ne "主机名: "; read hn
                 echo -ne "内存(MB) [2048]: "; read mem
                 echo -ne "CPU核心 [2]: "; read cores
-                echo -e "${CYAN}💡 建议: 基础运行 4GB, 常规使用 8GB, 开发环境 16GB+${NC}"
+                echo -e "${CYAN}建议: 基础运行 4GB, 常规使用 8GB, 开发环境 16GB+${NC}"
                 echo -ne "磁盘(GB) [8]: "; read disk
                 echo -e "${YELLOW}使用模板: $latest_template${NC}"
                 template=$latest_template
@@ -368,24 +229,6 @@ lxc_menu() {
                 ;;
             3)
                 pct list
-                echo -ne "请输入要启动的容器 ID: "; read id
-                [[ -n "$id" ]] && pct start "$id"
-                pause_func
-                ;;
-            4)
-                pct list
-                echo -ne "请输入要停止的容器 ID: "; read id
-                [[ -n "$id" ]] && pct stop "$id"
-                pause_func
-                ;;
-            5)
-                pct list
-                echo -ne "请输入要重启的容器 ID: "; read id
-                [[ -n "$id" ]] && pct reboot "$id"
-                pause_func
-                ;;
-            6)
-                pct list
                 echo -ne "请输入要删除的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     echo -e "${RED}警告: 将删除容器 $id 及其所有数据!${NC}"
@@ -394,14 +237,54 @@ lxc_menu() {
                 fi
                 pause_func
                 ;;
-            7)
-                pct list
+            4) lxc_operate_menu ;;
+            5) docker_menu ;;
+            0) break ;;
+        esac
+    done
+}
+
+# 容器操作
+lxc_operate_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}════════ 容器操作 ════════${NC}"
+        echo -e "${YELLOW}当前容器:${NC}"
+        pct list
+        echo ""
+        echo -e "  ${GREEN}[1]${NC} 进入容器控制台"
+        echo -e "  ${GREEN}[2]${NC} 启动容器"
+        echo -e "  ${GREEN}[3]${NC} 停止容器"
+        echo -e "  ${GREEN}[4]${NC} 重启容器"
+        echo -e "  ${GREEN}[5]${NC} 克隆容器"
+        echo -e "  ${GREEN}[6]${NC} 修改容器资源"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read c
+        echo
+        
+        case "$c" in
+            1)
                 echo -ne "请输入要进入的容器 ID: "; read id
                 [[ -n "$id" ]] && pct enter "$id"
                 pause_func
                 ;;
-            8)
-                pct list
+            2)
+                echo -ne "请输入要启动的容器 ID: "; read id
+                [[ -n "$id" ]] && pct start "$id"
+                pause_func
+                ;;
+            3)
+                echo -ne "请输入要停止的容器 ID: "; read id
+                [[ -n "$id" ]] && pct stop "$id"
+                pause_func
+                ;;
+            4)
+                echo -ne "请输入要重启的容器 ID: "; read id
+                [[ -n "$id" ]] && pct reboot "$id"
+                pause_func
+                ;;
+            5)
                 echo -ne "请输入源容器 ID: "; read src_id
                 echo -ne "请输入目标容器 ID: "; read dst_id
                 echo -ne "请输入目标主机名: "; read dst_hn
@@ -412,8 +295,7 @@ lxc_menu() {
                 fi
                 pause_func
                 ;;
-            9)
-                pct list
+            6)
                 echo -ne "请输入要修改的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     echo "当前配置:"
@@ -425,9 +307,6 @@ lxc_menu() {
                     echo -e "${GREEN}配置已更新${NC}"
                 fi
                 pause_func
-                ;;
-            a)
-                docker_menu
                 ;;
             0) break ;;
         esac
@@ -1237,79 +1116,18 @@ docker_deploy_custom() {
     pause_func
 }
 
-# VM 管理
-vm_menu() {
-    while true; do
-        clear
-        echo -e "${BLUE}════════ VM 管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 列表"
-        echo -e "  ${GREEN}[2]${NC} 启动"
-        echo -e "  ${GREEN}[3]${NC} 停止"
-        echo -e "  ${GREEN}[4]${NC} 重启"
-        echo -e "  ${GREEN}[5]${NC} 强制停止"
-        echo -e "  ${GREEN}[6]${NC} 查看配置"
-        echo -e "  ${GREEN}[7]${NC} 修改资源"
-        echo -e "  ${GREEN}[8]${NC} VM 控制台"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
-        read c
-        echo
-        
-        case "$c" in
-            1) qm list; pause_func ;;
-            2) echo -ne "VM ID: "; read id; [[ -n "$id" ]] && qm start "$id"; pause_func ;;
-            3) echo -ne "VM ID: "; read id; [[ -n "$id" ]] && qm shutdown "$id"; pause_func ;;
-            4) echo -ne "VM ID: "; read id; [[ -n "$id" ]] && qm reboot "$id"; pause_func ;;
-            5) echo -ne "VM ID: "; read id; [[ -n "$id" ]] && qm stop "$id"; pause_func ;;
-            6)
-                qm list
-                echo -ne "VM ID: "; read id
-                if [[ -n "$id" ]]; then
-                    echo -e "${BLUE}=== VM $id 配置 ===${NC}"
-                    qm config "$id"
-                fi
-                pause_func
-                ;;
-            7)
-                qm list
-                echo -ne "VM ID: "; read id
-                if [[ -n "$id" ]]; then
-                    echo "当前配置:"
-                    qm config "$id" | grep -E "^(memory|cores|sockets|net0)"
-                    echo -ne "新内存(MB, 回车跳过): "; read new_mem
-                    echo -ne "新CPU核心(回车跳过): "; read new_cores
-                    [[ -n "$new_mem" ]] && qm set "$id" -memory "$new_mem"
-                    [[ -n "$new_cores" ]] && qm set "$id" -cores "$new_cores"
-                    echo -e "${GREEN}配置已更新，重启生效${NC}"
-                fi
-                pause_func
-                ;;
-            8)
-                qm list
-                echo -ne "VM ID: "; read id
-                if [[ -n "$id" ]]; then
-                    echo -e "${YELLOW}进入 VM 控制台 (按 Ctrl+O 退出)...${NC}"
-                    qm terminal "$id"
-                fi
-                pause_func
-                ;;
-            0) break ;;
-        esac
-    done
-}
-
 # 系统管理
 system_menu() {
     while true; do
         clear
         echo -e "${BLUE}════════ 系统管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 系统信息"
-        echo -e "  ${GREEN}[2]${NC} 更新系统"
+        echo -e "  ${GREEN}[1]${NC} 系统状态"
+        echo -e "  ${GREEN}[2]${NC} 系统更新"
         echo -e "  ${GREEN}[3]${NC} 清理系统"
         echo -e "  ${GREEN}[4]${NC} 网络信息"
         echo -e "  ${GREEN}[5]${NC} 存储信息"
         echo -e "  ${GREEN}[6]${NC} 内核管理"
-        echo -e "  ${GREEN}[7]${NC} 查看日志"
+        echo -e "  ${GREEN}[7]${NC} 系统日志"
         echo -e "  ${GREEN}[8]${NC} 修复 Docker 源"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
@@ -1318,9 +1136,12 @@ system_menu() {
         
         case "$c" in
             1)
-                echo -e "${BLUE}=== 系统信息 ===${NC}"
-                pveversion -v
-                echo "主机: $(hostname) | IP: $(hostname -I | awk '{print $1}')"
+                echo -e "${BLUE}=== 系统状态 ===${NC}"
+                echo "主机: $(hostname) | PVE: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
+                echo "内核: $(uname -r)"
+                echo "CPU: $(nproc) 核 | 内存: $(free -h | awk 'NR==2{print $3"/"$2}')"
+                echo "磁盘: $(df -h / | awk 'NR==2{print $3"/"$2"("$5")"}')"
+                echo "运行中: VM $(qm list 2>/dev/null | grep running | wc -l) | LXC $(pct list 2>/dev/null | grep running | wc -l)"
                 pause_func
                 ;;
             2)
@@ -1516,114 +1337,6 @@ EOF
     done
 }
 
-# 常用工具
-tools_menu() {
-    while true; do
-        clear
-        echo -e "${BLUE}════════ 常用工具 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 安装 Docker"
-        echo -e "  ${GREEN}[2]${NC} 安装 Docker Compose"
-        echo -e "  ${GREEN}[3]${NC} 配置 NTP 时间同步"
-        echo -e "  ${GREEN}[4]${NC} 安装 htop"
-        echo -e "  ${GREEN}[5]${NC} 安装 lm-sensors (温度监控)"
-        echo -e "  ${GREEN}[6]${NC} 配置 Docker 镜像加速"
-        echo -e "  ${GREEN}[7]${NC} 一键部署常用容器"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
-        read c
-        echo
-        
-        case "$c" in
-            1)
-                echo "安装 Docker..."
-                apt update && apt install -y docker.io
-                systemctl enable docker && systemctl start docker
-                echo -e "${GREEN}Docker 安装完成${NC}"
-                pause_func
-                ;;
-            2)
-                echo "安装 Docker Compose..."
-                apt update && apt install -y docker-compose-plugin
-                docker compose version
-                echo -e "${GREEN}Docker Compose 安装完成${NC}"
-                pause_func
-                ;;
-            3)
-                echo -e "${BLUE}=== NTP 配置 ===${NC}"
-                echo -e "${YELLOW}当前时间:${NC} $(date)"
-                echo -ne "NTP 服务器 (如 cn.pool.ntp.org): "; read ntp_server
-                if [[ -n "$ntp_server" ]]; then
-                    apt install -y chrony
-                    sed -i "s/^pool.*/pool $ntp_server iburst/" /etc/chrony/chrony.conf
-                    systemctl restart chrony
-                    echo -e "${GREEN}NTP 配置完成${NC}"
-                    chronyc sources
-                fi
-                pause_func
-                ;;
-            4)
-                echo "安装 htop..."
-                apt install -y htop
-                echo -e "${GREEN}安装完成，运行 htop 启动${NC}"
-                pause_func
-                ;;
-            5)
-                echo "安装 lm-sensors..."
-                apt install -y lm-sensors
-                sensors-detect --auto
-                sensors
-                echo -e "${GREEN}安装完成，运行 sensors 查看温度${NC}"
-                pause_func
-                ;;
-            6)
-                echo -e "${BLUE}=== Docker 镜像加速 ===${NC}"
-                echo -ne "镜像地址 (如 https://docker.m.daocloud.io): "; read mirror_url
-                if [[ -n "$mirror_url" ]]; then
-                    mkdir -p /etc/docker
-                    cat > /etc/docker/daemon.json << EOF
-{
-  "registry-mirrors": ["$mirror_url"]
-}
-EOF
-                    systemctl restart docker
-                    echo -e "${GREEN}配置完成${NC}"
-                    cat /etc/docker/daemon.json
-                fi
-                pause_func
-                ;;
-            7)
-                echo -e "${BLUE}=== 一键部署容器 ===${NC}"
-                echo -e "${YELLOW}[1]${NC} Portainer (容器管理)"
-                echo -e "${YELLOW}[2]${NC} Nginx Proxy Manager (反向代理)"
-                echo -e "${YELLOW}[3]${NC} Watchtower (自动更新容器)"
-                echo -e "${YELLOW}[4]${NC} Home Assistant (智能家居)"
-                echo -e "${YELLOW}[0]${NC} 返回"
-                echo -ne "选择: "; read deploy
-                case "$deploy" in
-                    1)
-                        docker run -d --name portainer --restart=always -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce
-                        echo -e "${GREEN}Portainer 已启动，访问 http://$(hostname -I | awk '{print $1}'):9000${NC}"
-                        ;;
-                    2)
-                        docker run -d --name npm --restart=always -p 80:80 -p 443:443 -p 81:81 -v npm_data:/data -v npm_letsencrypt:/etc/letsencrypt jc21/nginx-proxy-manager:latest
-                        echo -e "${GREEN}NPM 已启动，访问 http://$(hostname -I | awk '{print $1}'):81 (admin@example.com / changeme)${NC}"
-                        ;;
-                    3)
-                        docker run -d --name watchtower --restart=always -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --interval 86400
-                        echo -e "${GREEN}Watchtower 已启动，每天自动检查更新${NC}"
-                        ;;
-                    4)
-                        docker run -d --name homeassistant --restart=always -p 8123:8123 -v hass_config:/config homeassistant/home-assistant:stable
-                        echo -e "${GREEN}Home Assistant 已启动，访问 http://$(hostname -I | awk '{print $1}'):8123${NC}"
-                        ;;
-                esac
-                pause_func
-                ;;
-            0) break ;;
-        esac
-    done
-}
-
 # 主循环
 main() {
     echo -e "${GREEN}PVE Toolkit $VERSION 加载完成${NC}"
@@ -1637,13 +1350,9 @@ main() {
         echo
         
         case "$choice" in
-            1) backup_menu ;;
-            2) monitor_menu ;;
-            3) lxc_menu ;;
-            4) vm_menu ;;
-            5) system_menu ;;
-            6) change_source ;;
-            7) tools_menu ;;
+            1) lxc_menu ;;
+            2) system_menu ;;
+            3) change_source ;;
             0) echo "再见"; exit 0 ;;
         esac
     done
