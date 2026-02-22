@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.0"
+    VERSION="V0.5.1"
 fi
 
 # 查询 GitHub 最新版本
@@ -54,6 +54,13 @@ download_latest_debian_template() {
     
     if curl -fSL "$template_url$latest_template" -o "$cache_dir/$latest_template" 2>/dev/null; then
         echo -e "${GREEN}模板下载完成: $latest_template${NC}"
+        
+        echo -e "${YELLOW}清理旧版模板...${NC}"
+        ls "$cache_dir"/debian-*-standard_*.tar.zst 2>/dev/null | grep -v "$latest_template" | while read -r old_template; do
+            echo -e "  ${RED}删除: ${NC}$(basename "$old_template")"
+            rm -f "$old_template"
+        done
+        
         echo "$latest_template"
     else
         echo -e "${RED}模板下载失败，将使用默认模板${NC}"
@@ -293,6 +300,9 @@ lxc_menu() {
                 else
                     echo -e "${YELLOW}未找到本地模板${NC}"
                 fi
+                echo -e "${YELLOW}=== 当前 LXC 容器 ===${NC}"
+                pct list
+                echo ""
                 echo -ne "容器 ID: "; read id
                 echo -ne "主机名: "; read hn
                 echo -ne "内存(MB) [2048]: "; read mem
