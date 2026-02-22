@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.10"
+    VERSION="V0.5.11"
 fi
 
 # 查询 GitHub 最新版本
@@ -333,21 +333,31 @@ check_and_install_docker() {
     
     DOCKER_AVAILABLE=0
     
-    if pct exec "$lxc_id" -- docker --version &>/dev/null; then
+    if pct exec "$lxc_id" -- bash -c 'command -v docker &>/dev/null || command -v dockerd &>/dev/null' 2>/dev/null; then
         echo -e "${GREEN}Docker 已安装${NC}"
-        pct exec "$lxc_id" -- docker --version
+        pct exec "$lxc_id" -- docker --version 2>/dev/null || echo -e "${YELLOW}Docker 命令存在但服务可能未启动${NC}"
         DOCKER_AVAILABLE=1
+        
+        echo -e "${YELLOW}尝试启动 Docker 服务...${NC}"
+        pct exec "$lxc_id" -- bash -c 'systemctl enable docker 2>/dev/null || true'
+        pct exec "$lxc_id" -- bash -c 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
+        
+        if pct exec "$lxc_id" -- docker info &>/dev/null; then
+            echo -e "${GREEN}Docker 服务运行正常${NC}"
+        else
+            echo -e "${YELLOW}Docker 服务未运行，尝试直接使用 docker 命令...${NC}"
+        fi
     else
         echo -e "${YELLOW}Docker 未安装，开始安装...${NC}"
         echo -e "${YELLOW}安装 Docker...${NC}"
         
         if pct exec "$lxc_id" -- bash -c 'apt update && apt install -y docker.io' 2>&1; then
             pct exec "$lxc_id" -- bash -c 'systemctl enable docker 2>/dev/null || true'
-            pct exec "$lxc_id" -- bash -c 'systemctl start docker 2>/dev/null || true'
+            pct exec "$lxc_id" -- bash -c 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
             
-            if pct exec "$lxc_id" -- docker --version &>/dev/null; then
+            if pct exec "$lxc_id" -- bash -c 'command -v docker &>/dev/null' 2>/dev/null; then
                 echo -e "${GREEN}Docker 安装完成${NC}"
-                pct exec "$lxc_id" -- docker --version
+                pct exec "$lxc_id" -- docker --version 2>/dev/null || true
                 DOCKER_AVAILABLE=1
             fi
         fi
@@ -358,75 +368,122 @@ check_and_install_docker() {
         return 1
     fi
     
-    if ! pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null || docker compose version &>/dev/null' 2>/dev/null; then
+    COMPOSE_VERSION=""
+    COMPOSE_CMD=""
+    
+    if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+        COMPOSE_CMD="docker-compose"
+        echo -e "${GREEN}Docker Compose 已安装 (docker-compose)${NC}"
+        pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
+    elif pct exec "$lxc_id" -- bash -c 'command -v docker &>/dev/null && docker compose version &>/dev/null' 2>/dev/null; then
+        COMPOSE_CMD="docker compose"
+        echo -e "${GREEN}Docker Compose 已安装 (docker compose plugin)${NC}"
+        pct exec "$lxc_id" -- docker compose version 2>/dev/null || true
+    else
         echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
         COMPOSE_INSTALL_SUCCESS=0
         
-        # 先安装必要工具 curl/wget
         echo -e "${YELLOW}安装必要工具 (curl/wget)...${NC}"
-        pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl wget' 2>&1
+        if ! pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl wget' 2>&1; then
+            echo -e "${RED}安装 curl/wget 失败，尝试仅安装 curl...${NC}"
+            pct exec "$lxc_id" -- bash -c 'apt update && apt install -y curl' 2>&1 || true
+        fi
         
-        # 获取最新版本号
-        echo -e "${YELLOW}获取 Docker Compose 最新版本...${NC}"
-        COMPOSE_VERSION=$(get_latest_compose_version)
-        if [[ -z "$COMPOSE_VERSION" ]]; then
-            COMPOSE_VERSION="v2.24.0"
-            echo -e "${YELLOW}无法获取最新版本，使用默认版本: $COMPOSE_VERSION${NC}"
+        if ! pct exec "$lxc_id" -- bash -c 'command -v curl &>/dev/null || command -v wget &>/dev/null' 2>/dev/null; then
+            echo -e "${YELLOW}curl/wget 不可用，尝试使用 pip 安装...${NC}"
+            if pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
+                if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
+                    if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+                        echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
+                        COMPOSE_CMD="docker-compose"
+                        pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
+                        COMPOSE_INSTALL_SUCCESS=1
+                    fi
+                fi
+            fi
+            
+            if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
+                echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
+                echo -e "${YELLOW}手动安装命令:${NC}"
+                echo -e "  apt update && apt install -y curl"
+                echo -e "  curl -L \"https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64\" -o /usr/local/bin/docker-compose"
+                echo -e "  chmod +x /usr/local/bin/docker-compose"
+                return 1
+            fi
         else
-            echo -e "${GREEN}最新版本: $COMPOSE_VERSION${NC}"
-        fi
-        
-        # 方法1: 使用二进制下载（最可靠）
-        echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
-        COMPOSE_URLS=(
-            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
-            "https://mirrors.ustc.edu.cn/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
-            "https://ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
-            "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
-        )
-        
-        for url in "${COMPOSE_URLS[@]}"; do
-            echo -e "${CYAN}尝试: $url${NC}"
-            if pct exec "$lxc_id" -- bash -c "curl -L '$url' -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose" 2>&1; then
-                if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
-                    echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
-                    pct exec "$lxc_id" -- docker-compose --version
-                    COMPOSE_INSTALL_SUCCESS=1
-                    break
+            echo -e "${YELLOW}获取 Docker Compose 最新版本...${NC}"
+            if pct exec "$lxc_id" -- command -v curl &>/dev/null; then
+                COMPOSE_VERSION=$(pct exec "$lxc_id" -- bash -c 'curl -sL "https://api.github.com/repos/docker/compose/releases/latest" 2>/dev/null' 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+            fi
+            
+            if [[ -z "$COMPOSE_VERSION" ]]; then
+                COMPOSE_VERSION="v2.24.0"
+                echo -e "${YELLOW}无法获取最新版本，使用默认版本: $COMPOSE_VERSION${NC}"
+            else
+                echo -e "${GREEN}最新版本: $COMPOSE_VERSION${NC}"
+            fi
+            
+            echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
+            COMPOSE_URLS=(
+                "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+                "https://mirrors.ustc.edu.cn/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
+                "https://ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+                "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+            )
+            
+            for url in "${COMPOSE_URLS[@]}"; do
+                echo -e "${CYAN}尝试: $url${NC}"
+                DOWNLOAD_SUCCESS=0
+                
+                if pct exec "$lxc_id" -- command -v curl &>/dev/null; then
+                    if pct exec "$lxc_id" -- bash -c "curl -L --connect-timeout 10 --max-time 60 -f '$url' -o /usr/local/bin/docker-compose" 2>&1; then
+                        DOWNLOAD_SUCCESS=1
+                    fi
+                fi
+                
+                if [[ $DOWNLOAD_SUCCESS -eq 0 ]] && pct exec "$lxc_id" -- command -v wget &>/dev/null; then
+                    if pct exec "$lxc_id" -- bash -c "wget --timeout=60 -O /usr/local/bin/docker-compose '$url'" 2>&1; then
+                        DOWNLOAD_SUCCESS=1
+                    fi
+                fi
+                
+                if [[ $DOWNLOAD_SUCCESS -eq 1 ]]; then
+                    if pct exec "$lxc_id" -- bash -c 'chmod +x /usr/local/bin/docker-compose' 2>&1; then
+                        if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+                            echo -e "${GREEN}Docker Compose (二进制) 安装完成${NC}"
+                            pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
+                            COMPOSE_CMD="docker-compose"
+                            COMPOSE_INSTALL_SUCCESS=1
+                            break
+                        fi
+                    fi
+                fi
+                echo -e "${RED}下载失败，尝试下一个源...${NC}"
+            done
+            
+            if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
+                echo -e "${RED}所有下载方式均失败，尝试 pip 安装...${NC}"
+                if pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
+                    if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
+                        if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
+                            echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
+                            COMPOSE_CMD="docker-compose"
+                            pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
+                            COMPOSE_INSTALL_SUCCESS=1
+                        fi
+                    fi
                 fi
             fi
-            # curl 失败尝试 wget
-            if pct exec "$lxc_id" -- bash -c "wget -O /usr/local/bin/docker-compose '$url' && chmod +x /usr/local/bin/docker-compose" 2>&1; then
-                if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
-                    echo -e "${GREEN}Docker Compose (wget) 安装完成${NC}"
-                    pct exec "$lxc_id" -- docker-compose --version
-                    COMPOSE_INSTALL_SUCCESS=1
-                    break
-                fi
-            fi
-        done
-        
-        # 方法2: 尝试 pip 安装（备选）
-        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]] && pct exec "$lxc_id" -- command -v pip3 &>/dev/null; then
-            echo -e "${YELLOW}尝试使用 pip 安装...${NC}"
-            if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
-                if pct exec "$lxc_id" -- bash -c 'command -v docker-compose &>/dev/null' 2>/dev/null; then
-                    echo -e "${GREEN}Docker Compose (pip) 安装完成${NC}"
-                    COMPOSE_INSTALL_SUCCESS=1
-                fi
+            
+            if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
+                echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
+                echo -e "${YELLOW}手动安装命令:${NC}"
+                echo -e "  apt update && apt install -y curl"
+                echo -e "  curl -L \"https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64\" -o /usr/local/bin/docker-compose"
+                echo -e "  chmod +x /usr/local/bin/docker-compose"
+                return 1
             fi
         fi
-        
-        if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
-            echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
-            echo -e "${YELLOW}手动安装命令:${NC}"
-            echo -e "  curl -L \"https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64\" -o /usr/local/bin/docker-compose"
-            echo -e "  chmod +x /usr/local/bin/docker-compose"
-            return 1
-        fi
-    else
-        echo -e "${GREEN}Docker Compose 已安装${NC}"
-        pct exec "$lxc_id" -- bash -c 'docker-compose --version 2>/dev/null || docker compose version' 2>/dev/null
     fi
     
     return 0

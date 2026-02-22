@@ -2,6 +2,22 @@
 
 所有重要的更改都将记录在此文件中。
 
+## [V0.5.11] - 2026-02-22
+
+### 修复
+
+- **Docker 检测逻辑优化**
+  - 使用 `command -v docker` 检测，更可靠
+  - 添加服务启动尝试逻辑
+  - 解决已安装 Docker 但检测不到的问题
+
+- **Docker Compose 安装重构**
+  - 版本获取移至容器内执行（而非宿主机）
+  - 添加 curl/wget 安装验证
+  - 移除 apt 安装方式（Debian Trixie 无 docker-compose-plugin 包）
+  - 改进下载逻辑：添加超时参数，使用 -f 强制失败检测
+  - 支持 docker-compose V1 和 docker compose V2 plugin
+
 ## [V0.5.10] - 2026-02-22
 
 ### 重构
