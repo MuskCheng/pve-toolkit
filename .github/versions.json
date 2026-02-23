@@ -1,5 +1,5 @@
 {
-  "docker": "5:28.1.0",
+  "docker": "28.1.0",
   "compose": "2.35.0",
   "lucky_digest": "sha256:2afadebd368184c2529b211ca364ba96bc06be84bbe04b47d5577912b0be2825",
   "build_date": "2026-02-23"
