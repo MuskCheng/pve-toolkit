@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.27"
+    VERSION="V0.5.28"
 fi
 
 # 查询 GitHub 最新版本
@@ -2525,15 +2525,35 @@ system_menu() {
                     fi
                     cp "$js_file" "$backup_file"
                     
-                    if grep -q "res.data.status.toLowerCase() !== 'active'" "$js_file"; then
-                        sed -i "s/res.data.status.toLowerCase() !== 'active'/res.data.status.toLowerCase() === 'active'/g" "$js_file"
+                    local modified=false
+                    
+                    # 策略A: 匹配 res.data.status 模式 (PVE 8.x/9.x 通用)
+                    if grep -q "res\.data\.status\.toLowerCase() !== 'active'" "$js_file" 2>/dev/null; then
+                        sed -i "s/res\.data\.status\.toLowerCase() !== 'active'/res.data.status.toLowerCase() === 'active'/g" "$js_file"
+                        modified=true
+                        echo -e "${GREEN}策略A生效: 修改了判断逻辑${NC}"
+                    fi
+                    
+                    # 策略B: 匹配 !== 'active' 通用模式
+                    if ! $modified && grep -q "!== 'active'" "$js_file" 2>/dev/null; then
+                        sed -i "s/!== 'active'/=== 'active'/g" "$js_file"
+                        modified=true
+                        echo -e "${GREEN}策略B生效: 修改了判断逻辑${NC}"
+                    fi
+                    
+                    # 策略C: 使用 Perl 多行匹配 Ext.Msg.show (兜底)
+                    if ! $modified; then
+                        if perl -i -0777 -pe 's/(Ext\.Msg\.show\(\{[\s\S]*?title: gettext\('"'"'No valid sub)/void({ \/\/\1/g' "$js_file" 2>/dev/null; then
+                            if ! grep -q "Ext.Msg.show({.*No valid sub" "$js_file" 2>/dev/null; then
+                                modified=true
+                                echo -e "${GREEN}策略C生效: 屏蔽了弹窗函数${NC}"
+                            fi
+                        fi
+                    fi
+                    
+                    if $modified; then
                         systemctl restart pveproxy.service
-                        echo -e "${GREEN}已屏蔽订阅提示（策略A）${NC}"
-                        echo -e "${YELLOW}请刷新浏览器或重新登录 PVE Web${NC}"
-                    elif grep -q "Ext.Msg.show({" "$js_file"; then
-                        perl -i -0777 -pe "s/(Ext\.Msg\.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" "$js_file"
-                        systemctl restart pveproxy.service
-                        echo -e "${GREEN}已屏蔽订阅提示（策略B）${NC}"
+                        echo -e "${GREEN}已屏蔽订阅提示${NC}"
                         echo -e "${YELLOW}请刷新浏览器或重新登录 PVE Web${NC}"
                     else
                         echo -e "${RED}未找到订阅检查代码，PVE 版本可能已更新${NC}"
