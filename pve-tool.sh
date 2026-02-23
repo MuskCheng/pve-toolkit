@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.30"
+    VERSION="V0.5.31"
 fi
 
 # 查询 GitHub 最新版本
@@ -259,7 +259,6 @@ lxc_menu() {
         echo -e "  ${GREEN}[3]${NC} 删除容器"
         echo -e "  ${GREEN}[4]${NC} 容器操作"
         echo -e "  ${GREEN}[5]${NC} Docker 管理"
-        echo -e "  ${GREEN}[6]${NC} 安装常用工具"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -369,7 +368,6 @@ lxc_menu() {
                 ;;
             4) lxc_operate_menu ;;
             5) docker_menu ;;
-            6) install_tools_menu ;;
             0) break ;;
         esac
     done
@@ -1382,7 +1380,6 @@ docker_menu() {
         echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
         echo -e "  ${GREEN}[5]${NC} Docker 换源"
         echo -e "  ${GREEN}[6]${NC} Docker 容器管理"
-        echo -e "  ${GREEN}[7]${NC} 安装 Docker (离线包)"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -1464,9 +1461,6 @@ docker_menu() {
                 ;;
             6)
                 docker_container_menu
-                ;;
-            7)
-                install_docker_offline
                 ;;
             0) break ;;
         esac
