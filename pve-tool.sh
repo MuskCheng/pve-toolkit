@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.29"
+    VERSION="V0.5.30"
 fi
 
 # 查询 GitHub 最新版本
@@ -1658,10 +1658,11 @@ docker_change_registry() {
     echo ""
     
     echo -e "${YELLOW}选择镜像源:${NC}"
-    echo -e "  ${GREEN}[1]${NC} DaoCloud (推荐)"
+    echo -e "  ${GREEN}[1]${NC} 毫秒镜像 (推荐)"
     echo -e "  ${GREEN}[2]${NC} 轩辕镜像免费版"
-    echo -e "  ${GREEN}[3]${NC} KSpeeder"
-    echo -e "  ${GREEN}[4]${NC} 自定义镜像源"
+    echo -e "  ${GREEN}[3]${NC} 耗子面板"
+    echo -e "  ${GREEN}[4]${NC} 中科大镜像"
+    echo -e "  ${GREEN}[5]${NC} 自定义镜像源"
     echo -e "  ${GREEN}[0]${NC} 取消"
     echo -ne "${CYAN}选择: ${NC}"
     read registry_choice
@@ -1670,18 +1671,22 @@ docker_change_registry() {
     REGISTRY_MIRRORS=""
     case "$registry_choice" in
         1)
-            REGISTRY_MIRRORS="https://docker.m.daocloud.io"
-            echo -e "${GREEN}已选择: DaoCloud 镜像源${NC}"
+            REGISTRY_MIRRORS="https://docker.1ms.run"
+            echo -e "${GREEN}已选择: 毫秒镜像${NC}"
             ;;
         2)
             REGISTRY_MIRRORS="https://docker.xuanyuan.me"
             echo -e "${GREEN}已选择: 轩辕镜像免费版${NC}"
             ;;
         3)
-            REGISTRY_MIRRORS="https://registry.linkease.net:5443"
-            echo -e "${GREEN}已选择: KSpeeder 镜像源${NC}"
+            REGISTRY_MIRRORS="https://hub.rat.dev"
+            echo -e "${GREEN}已选择: 耗子面板${NC}"
             ;;
         4)
+            REGISTRY_MIRRORS="https://docker.mirrors.ustc.edu.cn"
+            echo -e "${GREEN}已选择: 中科大镜像${NC}"
+            ;;
+        5)
             echo -ne "请输入镜像源地址: "; read REGISTRY_MIRRORS
             if [[ -z "$REGISTRY_MIRRORS" ]]; then
                 echo -e "${RED}错误: 请输入镜像源地址${NC}"
