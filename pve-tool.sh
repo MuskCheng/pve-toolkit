@@ -1392,7 +1392,7 @@ docker_container_menu() {
         echo -e "${BLUE}════════ Docker 容器管理 [LXC: $lxc_id] ════════${NC}"
         
         echo -e "${YELLOW}Docker 容器列表:${NC}"
-        pct exec "$lxc_id" -- docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}" 2>/dev/null || echo "无法获取容器列表"
+        pct exec "$lxc_id" -- docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{range $i, $p := .Ports}}{{if $i}}, {{end}}{{$p.HostPort}}{{end}}' 2>/dev/null || echo "无法获取容器列表"
         echo ""
         
         echo -e "  ${GREEN}[1]${NC} 查看容器详情"
