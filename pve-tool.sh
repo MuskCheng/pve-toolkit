@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.28"
+    VERSION="V0.5.29"
 fi
 
 # 查询 GitHub 最新版本
@@ -195,6 +195,60 @@ EOF
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
 }
 
+# 显示容器列表（增强版）
+show_lxc_list() {
+    clear
+    echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}                          LXC 容器列表${NC}"
+    echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
+    printf "${WHITE} %-6s %-22s %-8s %-10s %-16s %-20s${NC}\n" "VMID" "名称" "状态" "特权容器" "IP地址" "Docker端口"
+    echo -e "${BLUE}────────────────────────────────────────────────────────────────────────${NC}"
+    
+    local containers=$(pct list 2>/dev/null | tail -n +2)
+    if [[ -z "$containers" ]]; then
+        echo -e "${YELLOW}  无容器${NC}"
+        echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
+        return
+    fi
+    
+    while IFS= read -r line; do
+        local vmid=$(echo "$line" | awk '{print $1}')
+        local name=$(echo "$line" | awk '{print $2}')
+        local status=$(echo "$line" | awk '{print $3}')
+        
+        local unprivileged=$(pct config "$vmid" 2>/dev/null | grep "^unprivileged:" | awk '{print $2}')
+        local priv_status
+        if [[ "$unprivileged" == "1" ]]; then
+            priv_status="${GREEN}否${NC}"
+        else
+            priv_status="${RED}是${NC}"
+        fi
+        
+        local ip_addr="-"
+        if [[ "$status" == "running" ]]; then
+            ip_addr=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+\.\d+\.\d+\.\d+' | head -1)
+            [[ -z "$ip_addr" ]] && ip_addr="-"
+        fi
+        
+        local docker_ports="-"
+        if [[ "$status" == "running" ]]; then
+            docker_ports=$(pct exec "$vmid" -- docker ps --format '{{range .Ports}}{{.PublicPort}},{{end}}' 2>/dev/null | sed 's/,$//' | tr ',' ', ' | sed 's/, $//')
+            [[ -z "$docker_ports" ]] && docker_ports="-"
+        fi
+        
+        local status_display
+        case "$status" in
+            running) status_display="${GREEN}运行${NC}" ;;
+            stopped) status_display="${RED}停止${NC}" ;;
+            *) status_display="${YELLOW}$status${NC}" ;;
+        esac
+        
+        printf " %-6s %-22s %-8s %-10s %-16s %-20s\n" "$vmid" "$name" "$status_display" "$priv_status" "$ip_addr" "$docker_ports"
+    done <<< "$containers"
+    
+    echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
+}
+
 # LXC 管理
 lxc_menu() {
     while true; do
@@ -212,7 +266,7 @@ lxc_menu() {
         echo
         
         case "$c" in
-            1) pct list; pause_func ;;
+            1) show_lxc_list; pause_func ;;
             2)
                 echo -e "${YELLOW}=== 检查并下载最新 Debian 模板 ===${NC}"
                 latest_template=$(get_latest_debian_template)
