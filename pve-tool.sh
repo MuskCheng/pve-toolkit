@@ -152,6 +152,7 @@ lxc_menu() {
         echo -e "  ${GREEN}[3]${NC} 删除容器"
         echo -e "  ${GREEN}[4]${NC} 容器操作"
         echo -e "  ${GREEN}[5]${NC} Docker 管理"
+        echo -e "  ${GREEN}[6]${NC} 安装常用工具"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -246,10 +247,17 @@ lxc_menu() {
                         if [[ "$install_docker" == "y" || "$install_docker" == "Y" ]]; then
                             echo ""
                             echo -e "${YELLOW}正在安装 Docker 环境...${NC}"
-                            if check_and_install_docker "$id"; then
+                            
+                            if install_docker_offline_silent "$id"; then
                                 echo -e "${GREEN}Docker 环境安装完成!${NC}"
+                                pct exec "$id" -- docker --version 2>/dev/null || true
                             else
-                                echo -e "${RED}Docker 环境安装失败，请稍后手动安装${NC}"
+                                echo -e "${YELLOW}离线安装失败，尝试在线安装...${NC}"
+                                if check_and_install_docker "$id"; then
+                                    echo -e "${GREEN}Docker 环境安装完成!${NC}"
+                                else
+                                    echo -e "${RED}Docker 环境安装失败，请稍后手动安装${NC}"
+                                fi
                             fi
                         fi
                     fi
@@ -272,6 +280,7 @@ lxc_menu() {
                 ;;
             4) lxc_operate_menu ;;
             5) docker_menu ;;
+            6) install_tools_menu ;;
             0) break ;;
         esac
     done
@@ -662,6 +671,221 @@ get_latest_compose_version() {
     local version
     version=$(curl -sL "https://api.github.com/repos/docker/compose/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
     echo "$version"
+}
+
+# Docker 离线安装（静默模式）
+install_docker_offline_silent() {
+    local lxc_id=$1
+    local offline_dir="/var/lib/vz/template/cache/pve-toolkit-offline"
+    local offline_file="$offline_dir.tar.gz"
+    
+    if [[ -z "$lxc_id" ]]; then
+        return 1
+    fi
+    
+    if ! pct status "$lxc_id" &>/dev/null; then
+        return 1
+    fi
+    
+    if [[ ! -d "$offline_dir" || ! -f "$offline_dir/docker/docker-ce.deb" ]]; then
+        if [[ ! -f "$offline_file" ]]; then
+            echo -e "${YELLOW}正在下载离线包...${NC}"
+            local OFFLINE_URL="https://ghproxy.com/https://github.com/MuskCheng/pve-toolkit/releases/download/${LATEST_VERSION}/pve-toolkit-offline-${LATEST_VERSION}-amd64.tar.gz"
+            
+            mkdir -p "$(dirname $offline_file)"
+            if ! curl -L --progress-bar -fSL --connect-timeout 30 --max-time 600 "$OFFLINE_URL" -o "$offline_file"; then
+                echo -e "${RED}离线包下载失败${NC}"
+                rm -f "$offline_file"
+                return 1
+            fi
+        fi
+        
+        echo -e "${YELLOW}解压离线包...${NC}"
+        rm -rf "$offline_dir"
+        mkdir -p "$offline_dir"
+        tar -xzf "$offline_file" -C "$offline_dir"
+    fi
+    
+    echo -e "${YELLOW}复制文件到容器...${NC}"
+    pct exec "$lxc_id" -- mkdir -p /tmp/docker /tmp/images
+    pct push "$lxc_id" "$offline_dir/docker/" /tmp/docker/ --recursive 2>/dev/null || return 1
+    pct push "$lxc_id" "$offline_dir/images/" /tmp/images/ --recursive 2>/dev/null || true
+    
+    echo -e "${YELLOW}安装 Docker...${NC}"
+    pct exec "$lxc_id" -- bash -c '
+        cd /tmp/docker
+        for deb in *.deb; do
+            echo "  安装 $deb..."
+            dpkg -i "$deb" 2>/dev/null || true
+        done
+        apt-get install -f -y
+    '
+    
+    pct exec "$lxc_id" -- systemctl enable docker 2>/dev/null || true
+    pct exec "$lxc_id" -- systemctl start docker 2>/dev/null || true
+    
+    echo -e "${YELLOW}加载 Lucky V2 镜像...${NC}"
+    pct exec "$lxc_id" -- docker load -i /tmp/images/lucky.tar 2>/dev/null || true
+    
+    pct exec "$lxc_id" -- rm -rf /tmp/docker /tmp/images
+    
+    if pct exec "$lxc_id" -- docker --version &>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 安装常用工具菜单
+install_tools_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}════════ 安装常用工具 ════════${NC}"
+        echo -e "  ${GREEN}[1]${NC} 🍀 Lucky V2 (反向代理/端口转发/DDNS)"
+        echo -e "  ${GREEN}[2]${NC} 更多工具... (敬请期待)"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read c
+        echo
+        
+        case "$c" in
+            1) install_lucky ;;
+            2) echo -e "${YELLOW}敬请期待${NC}"; pause_func ;;
+            0) break ;;
+        esac
+    done
+}
+
+# 安装 Lucky V2
+install_lucky() {
+    echo -e "${BLUE}════════ 安装 Lucky V2 ════════${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "请输入容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}未输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    if ! pct status "$lxc_id" &>/dev/null; then
+        echo -e "${RED}容器 $lxc_id 不存在${NC}"
+        pause_func
+        return
+    fi
+    
+    echo -e "${YELLOW}检查 Docker 环境...${NC}"
+    if ! pct exec "$lxc_id" -- command -v docker &>/dev/null; then
+        echo -e "${RED}容器中未安装 Docker${NC}"
+        echo -ne "是否安装 Docker? (Y/n): "; read install_docker
+        
+        if [[ "$install_docker" != "n" && "$install_docker" != "N" ]]; then
+            if install_docker_offline_silent "$lxc_id"; then
+                echo -e "${GREEN}Docker 安装完成${NC}"
+            else
+                echo -e "${RED}Docker 安装失败${NC}"
+                pause_func
+                return
+            fi
+        else
+            pause_func
+            return
+        fi
+    else
+        echo -e "${GREEN}Docker 已安装${NC}"
+    fi
+    
+    echo ""
+    echo -e "${CYAN}配置参数 (回车使用默认值):${NC}"
+    
+    echo -ne "  端口 [16601]: "; read lucky_port
+    lucky_port=${lucky_port:-16601}
+    
+    echo -ne "  配置目录 [/opt/lucky]: "; read lucky_dir
+    lucky_dir=${lucky_dir:-/opt/lucky}
+    
+    echo -ne "  容器名称 [lucky]: "; read lucky_name
+    lucky_name=${lucky_name:-lucky}
+    
+    echo ""
+    echo -e "${YELLOW}确认安装到容器 $lxc_id?${NC}"
+    echo -e "  端口: ${GREEN}$lucky_port${NC}"
+    echo -e "  配置目录: ${GREEN}$lucky_dir${NC}"
+    echo -e "  容器名称: ${GREEN}$lucky_name${NC}"
+    echo ""
+    echo -ne "确认? (Y/n): "; read confirm
+    
+    if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+        echo -e "${YELLOW}已取消${NC}"
+        pause_func
+        return
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}检查 Lucky V2 镜像...${NC}"
+    
+    if ! pct exec "$lxc_id" -- docker images gdy666/lucky:v2 --format "{{.ID}}" 2>/dev/null | grep -q .; then
+        local offline_dir="/var/lib/vz/template/cache/pve-toolkit-offline"
+        local image_loaded=0
+        
+        if [[ -f "$offline_dir/images/lucky.tar" ]]; then
+            echo -e "${YELLOW}从离线包加载镜像...${NC}"
+            pct exec "$lxc_id" -- mkdir -p /tmp/images
+            pct push "$lxc_id" "$offline_dir/images/lucky.tar" /tmp/images/lucky.tar
+            if pct exec "$lxc_id" -- docker load -i /tmp/images/lucky.tar 2>/dev/null; then
+                image_loaded=1
+                pct exec "$lxc_id" -- rm -f /tmp/images/lucky.tar
+            fi
+        fi
+        
+        if [[ $image_loaded -eq 0 ]]; then
+            echo -e "${YELLOW}在线拉取镜像...${NC}"
+            if ! pct exec "$lxc_id" -- docker pull gdy666/lucky:v2; then
+                echo -e "${RED}镜像拉取失败${NC}"
+                pause_func
+                return
+            fi
+        fi
+    else
+        echo -e "${GREEN}镜像已存在${NC}"
+    fi
+    
+    echo -e "${YELLOW}创建配置目录...${NC}"
+    pct exec "$lxc_id" -- mkdir -p "$lucky_dir"
+    
+    echo -e "${YELLOW}启动 Lucky V2 容器...${NC}"
+    pct exec "$lxc_id" -- docker rm -f "$lucky_name" 2>/dev/null || true
+    
+    pct exec "$lxc_id" -- docker run -d \
+        --name "$lucky_name" \
+        --restart=always \
+        --net=host \
+        -v "$lucky_dir:/goodluck" \
+        gdy666/lucky:v2
+    
+    if [[ $? -eq 0 ]]; then
+        local container_ip=$(pct exec "$lxc_id" -- hostname -I 2>/dev/null | awk '{print $1}')
+        
+        echo ""
+        echo -e "${GREEN}═══════════════════════════════════════${NC}"
+        echo -e "${GREEN}  Lucky V2 安装完成!${NC}"
+        echo -e "${GREEN}═══════════════════════════════════════${NC}"
+        echo ""
+        if [[ -n "$container_ip" ]]; then
+            echo -e "${CYAN}访问地址: http://${container_ip}:${lucky_port}${NC}"
+        else
+            echo -e "${CYAN}访问地址: http://<容器IP>:${lucky_port}${NC}"
+        fi
+        echo ""
+        echo -e "${YELLOW}首次登录请设置管理员密码${NC}"
+    else
+        echo -e "${RED}Lucky V2 安装失败${NC}"
+    fi
+    
+    pause_func
 }
 
 # Docker 离线安装
