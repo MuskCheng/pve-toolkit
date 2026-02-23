@@ -26,7 +26,9 @@ jobs:
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
       docker_ver: ${{ steps.docker.outputs.version }}
+      docker_ver_clean: ${{ steps.docker.outputs.version_clean }}
       compose_ver: ${{ steps.compose.outputs.version }}
+      compose_ver_clean: ${{ steps.compose.outputs.version_clean }}
       lucky_digest: ${{ steps.lucky.outputs.digest }}
     
     steps:
@@ -52,17 +54,21 @@ jobs:
         id: docker
         run: |
           DOCKER_VER=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
-            gunzip | grep -A10 "^Package: docker-ce$" | grep "^Version:" | head -1 | awk '{print $2}' | sed 's/-1.*//')
+            gunzip | grep -A10 "^Package: docker-ce$" | grep "^Version:" | head -1 | awk '{print $2}')
+          DOCKER_VER_CLEAN=$(echo "$DOCKER_VER" | sed 's/-[0-9]~.*//')
           echo "version=$DOCKER_VER" >> $GITHUB_OUTPUT
-          echo "Docker version: $DOCKER_VER"
+          echo "version_clean=$DOCKER_VER_CLEAN" >> $GITHUB_OUTPUT
+          echo "Docker version: $DOCKER_VER (clean: $DOCKER_VER_CLEAN)"
 
       - name: Get latest Docker Compose version
         id: compose
         run: |
           COMPOSE_VER=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
-            gunzip | grep -A10 "^Package: docker-compose-plugin$" | grep "^Version:" | head -1 | awk '{print $2}' | sed 's/-1.*//')
+            gunzip | grep -A10 "^Package: docker-compose-plugin$" | grep "^Version:" | head -1 | awk '{print $2}')
+          COMPOSE_VER_CLEAN=$(echo "$COMPOSE_VER" | sed 's/-[0-9]~.*//')
           echo "version=$COMPOSE_VER" >> $GITHUB_OUTPUT
-          echo "Compose version: $COMPOSE_VER"
+          echo "version_clean=$COMPOSE_VER_CLEAN" >> $GITHUB_OUTPUT
+          echo "Compose version: $COMPOSE_VER (clean: $COMPOSE_VER_CLEAN)"
 
       - name: Get latest Lucky V2 digest
         id: lucky
@@ -80,7 +86,9 @@ jobs:
           CURRENT_LUCKY="${{ steps.current.outputs.lucky_digest }}"
           
           NEW_DOCKER="${{ steps.docker.outputs.version }}"
+          NEW_DOCKER_CLEAN="${{ steps.docker.outputs.version_clean }}"
           NEW_COMPOSE="${{ steps.compose.outputs.version }}"
+          NEW_COMPOSE_CLEAN="${{ steps.compose.outputs.version_clean }}"
           NEW_LUCKY="${{ steps.lucky.outputs.digest }}"
           
           FORCE="${{ github.event.inputs.force_build }}"
@@ -88,8 +96,8 @@ jobs:
           echo "## Version Comparison" | tee -a $GITHUB_STEP_SUMMARY
           echo "| Component | Current | Latest |" | tee -a $GITHUB_STEP_SUMMARY
           echo "|-----------|---------|--------|" | tee -a $GITHUB_STEP_SUMMARY
-          echo "| Docker | $CURRENT_DOCKER | $NEW_DOCKER |" | tee -a $GITHUB_STEP_SUMMARY
-          echo "| Compose | $CURRENT_COMPOSE | $NEW_COMPOSE |" | tee -a $GITHUB_STEP_SUMMARY
+          echo "| Docker | $CURRENT_DOCKER | $NEW_DOCKER_CLEAN |" | tee -a $GITHUB_STEP_SUMMARY
+          echo "| Compose | $CURRENT_COMPOSE | $NEW_COMPOSE_CLEAN |" | tee -a $GITHUB_STEP_SUMMARY
           echo "| Lucky | ${CURRENT_LUCKY:0:12}... | ${NEW_LUCKY:0:12}... |" | tee -a $GITHUB_STEP_SUMMARY
           
           SHOULD_BUILD="false"
@@ -97,10 +105,10 @@ jobs:
           if [[ "$FORCE" == "true" ]]; then
             echo "⚡ Force build mode" | tee -a $GITHUB_STEP_SUMMARY
             SHOULD_BUILD="true"
-          elif [[ "$CURRENT_DOCKER" != "$NEW_DOCKER" && "$NEW_DOCKER" != "" ]]; then
+          elif [[ "$CURRENT_DOCKER" != "$NEW_DOCKER_CLEAN" && "$NEW_DOCKER_CLEAN" != "" ]]; then
             echo "🆕 Docker updated" | tee -a $GITHUB_STEP_SUMMARY
             SHOULD_BUILD="true"
-          elif [[ "$CURRENT_COMPOSE" != "$NEW_COMPOSE" && "$NEW_COMPOSE" != "" ]]; then
+          elif [[ "$CURRENT_COMPOSE" != "$NEW_COMPOSE_CLEAN" && "$NEW_COMPOSE_CLEAN" != "" ]]; then
             echo "🆕 Compose updated" | tee -a $GITHUB_STEP_SUMMARY
             SHOULD_BUILD="true"
           elif [[ "$CURRENT_LUCKY" != "$NEW_LUCKY" && "$NEW_LUCKY" != "" ]]; then
@@ -124,12 +132,16 @@ jobs:
       - name: Set environment variables
         run: |
           DOCKER_VER="${{ needs.check.outputs.docker_ver }}"
+          DOCKER_VER_CLEAN="${{ needs.check.outputs.docker_ver_clean }}"
           COMPOSE_VER="${{ needs.check.outputs.compose_ver }}"
+          COMPOSE_VER_CLEAN="${{ needs.check.outputs.compose_ver_clean }}"
           TOOL_VERSION=$(cat VERSION | tr -d '\n' | tr -d '\r' | sed 's/^V//')
           BUILD_DATE=$(date '+%Y-%m-%d')
           
           echo "DOCKER_VER=$DOCKER_VER" >> $GITHUB_ENV
+          echo "DOCKER_VER_CLEAN=$DOCKER_VER_CLEAN" >> $GITHUB_ENV
           echo "COMPOSE_VER=$COMPOSE_VER" >> $GITHUB_ENV
+          echo "COMPOSE_VER_CLEAN=$COMPOSE_VER_CLEAN" >> $GITHUB_ENV
           echo "TOOL_VERSION=$TOOL_VERSION" >> $GITHUB_ENV
           echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
           
@@ -151,14 +163,12 @@ jobs:
 
       - name: Download Docker packages
         run: |
-          DOCKER_CE_VER="5:${DOCKER_VER}-1~debian.13~trixie"
           CONTAINERD_VER="${{ steps.containerd.outputs.version }}"
           BUILDX_VER="${{ steps.buildx.outputs.version }}"
-          COMPOSE_VER="${COMPOSE_VER}-1~debian.13~trixie"
           
           echo "📦 Downloading Docker packages..."
-          echo "  Docker: ${DOCKER_VER}"
-          echo "  Compose: ${COMPOSE_VER}"
+          echo "  Docker: ${DOCKER_VER_CLEAN}"
+          echo "  Compose: ${COMPOSE_VER_CLEAN}"
           echo "  containerd: ${CONTAINERD_VER}"
           echo "  buildx: ${BUILDX_VER}"
           
@@ -166,10 +176,10 @@ jobs:
             "https://download.docker.com/linux/debian/pool/stable/amd64/containerd.io_${CONTAINERD_VER}_amd64.deb"
           
           curl -fSL -o offline/docker/docker-ce.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-ce_${DOCKER_CE_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-ce_${DOCKER_VER}_amd64.deb"
           
           curl -fSL -o offline/docker/docker-ce-cli.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-ce-cli_${DOCKER_CE_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-ce-cli_${DOCKER_VER}_amd64.deb"
           
           curl -fSL -o offline/docker/docker-buildx-plugin.deb \
             "https://download.docker.com/linux/debian/pool/stable/amd64/docker-buildx-plugin_${BUILDX_VER}_amd64.deb"
@@ -288,8 +298,8 @@ jobs:
           ════════════════════════════════════════
           
           Versions:
-            Docker Engine:        v${DOCKER_VER}
-            Docker Compose:       v${COMPOSE_VER}
+            Docker Engine:        v${DOCKER_VER_CLEAN}
+            Docker Compose:       v${COMPOSE_VER_CLEAN}
             Lucky V2:             gdy666/lucky:v2
             Build Date:           ${BUILD_DATE}
           
@@ -326,8 +336,8 @@ jobs:
           mkdir -p .github
           cat > .github/versions.json << EOF
           {
-            "docker": "${DOCKER_VER}",
-            "compose": "${COMPOSE_VER}",
+            "docker": "${DOCKER_VER_CLEAN}",
+            "compose": "${COMPOSE_VER_CLEAN}",
             "lucky_digest": "${{ needs.check.outputs.lucky_digest }}",
             "build_date": "${BUILD_DATE}"
           }
@@ -344,8 +354,8 @@ jobs:
             
             | Component | Version |
             |:----------|:--------|
-            | Docker Engine | `v${{ env.DOCKER_VER }}` |
-            | Docker Compose | `v${{ env.COMPOSE_VER }}` |
+            | Docker Engine | `v${{ env.DOCKER_VER_CLEAN }}` |
+            | Docker Compose | `v${{ env.COMPOSE_VER_CLEAN }}` |
             | Lucky V2 | `gdy666/lucky:v2` |
             
             **File:** `pve-toolkit-offline-v${{ env.TOOL_VERSION }}-amd64.tar.gz`
