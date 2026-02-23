@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.24"
+    VERSION="V0.5.25"
 fi
 
 # 查询 GitHub 最新版本
@@ -81,6 +81,26 @@ get_compose_cmd() {
         echo "docker compose"
     else
         echo ""
+    fi
+}
+
+# 备份函数
+backup_file() {
+    local file="$1"
+    local backup_dir="/var/backups/pve-tools"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    
+    if [[ ! -f "$file" ]]; then
+        return 1
+    fi
+    
+    mkdir -p "$backup_dir"
+    local backup_path="${backup_dir}/$(basename "$file").${timestamp}.bak"
+    
+    if cp -a "$file" "$backup_path" 2>/dev/null; then
+        return 0
+    else
+        return 1
     fi
 }
 
@@ -2410,21 +2430,7 @@ system_menu() {
                 pause_func
                 ;;
             6)
-                echo -e "${BLUE}=== 内核管理 ===${NC}"
-                echo -e "${YELLOW}当前内核:${NC} $(uname -r)"
-                echo -e "${YELLOW}已安装内核:${NC}"
-                dpkg -l | grep -E "pve-kernel|linux-image" | awk '{print $2, $3}'
-                echo ""
-                echo -e "${YELLOW}[1]${NC} 清理旧内核"
-                echo -e "${YELLOW}[0]${NC} 返回"
-                echo -ne "选择: "; read k
-                if [[ "$k" == "1" ]]; then
-                    echo "清理旧内核..."
-                    apt autoremove -y --purge 'pve-kernel-*' 'linux-image-*'
-                    update-grub
-                    echo -e "${GREEN}完成${NC}"
-                fi
-                pause_func
+                kernel_management
                 ;;
             7)
                 echo -e "${BLUE}=== 系统日志 ===${NC}"
@@ -2523,6 +2529,78 @@ system_menu() {
     done
 }
 
+# 内核管理
+kernel_management() {
+    while true; do
+        clear
+        echo -e "${BLUE}════════ 内核管理 ════════${NC}"
+        echo -e "${YELLOW}当前内核:${NC} $(uname -r)"
+        echo ""
+        echo -e "${YELLOW}已安装内核:${NC}"
+        dpkg -l 2>/dev/null | grep -E "pve-kernel|proxmox-kernel" | awk '{printf "  %s (%s)\n", $2, $3}' || echo "  无"
+        echo ""
+        echo -e "${GREEN}[1]${NC} 查看可用内核"
+        echo -e "${GREEN}[2]${NC} 安装新内核"
+        echo -e "${GREEN}[3]${NC} 设置默认启动内核"
+        echo -e "${GREEN}[4]${NC} 清理旧内核"
+        echo -e "${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read k
+        echo
+        
+        case "$k" in
+            1)
+                echo -e "${YELLOW}正在获取可用内核列表...${NC}"
+                local kernel_url="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve/dists/trixie/pve-no-subscription/binary-amd64/Packages"
+                local kernels=$(curl -s "$kernel_url" 2>/dev/null | grep -E '^Package: (pve-kernel|proxmox-kernel)' | awk '{print $2}' | sort -V | tail -10)
+                if [[ -n "$kernels" ]]; then
+                    echo -e "${CYAN}可用内核 (最近10个):${NC}"
+                    echo "$kernels" | while read line; do echo -e "  ${GREEN}•${NC} $line"; done
+                else
+                    echo -e "${RED}获取失败，请检查网络${NC}"
+                fi
+                ;;
+            2)
+                read -p "请输入内核版本 (如 6.8.8-2-pve): " kernel_ver
+                if [[ -n "$kernel_ver" ]]; then
+                    if [[ ! "$kernel_ver" =~ ^proxmox-kernel ]]; then
+                        kernel_ver="proxmox-kernel-$kernel_ver"
+                    fi
+                    echo -e "${YELLOW}正在安装 $kernel_ver...${NC}"
+                    apt update
+                    if apt install -y "$kernel_ver"; then
+                        echo -e "${GREEN}安装成功${NC}"
+                        update-grub
+                        echo -e "${YELLOW}建议重启系统应用新内核${NC}"
+                    else
+                        echo -e "${RED}安装失败${NC}"
+                    fi
+                fi
+                ;;
+            3)
+                read -p "请输入默认内核版本 (如 6.8.8-2-pve): " kernel_ver
+                if [[ -n "$kernel_ver" ]]; then
+                    if grub-set-default "Advanced options for Proxmox VE>Proxmox VE, with Linux $kernel_ver" 2>/dev/null; then
+                        echo -e "${GREEN}设置成功${NC}"
+                        update-grub
+                    else
+                        echo -e "${RED}设置失败，请检查内核版本${NC}"
+                    fi
+                fi
+                ;;
+            4)
+                echo -e "${YELLOW}清理旧内核 (保留当前内核)...${NC}"
+                apt autoremove -y --purge 'pve-kernel-*' 'proxmox-kernel-*' 2>/dev/null
+                update-grub
+                echo -e "${GREEN}清理完成${NC}"
+                ;;
+            0) return ;;
+            *) ;;
+        esac
+        pause_func
+    done
+}
+
 fix_docker_source() {
     clear
     echo -e "${BLUE}═══ 修复 Docker 源 ═══${NC}"
@@ -2603,7 +2681,7 @@ change_source() {
     while true; do
         clear
         echo -e "${BLUE}════════ 换源工具 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 中科大源"
+        echo -e "  ${GREEN}[1]${NC} 中科大源 (推荐)"
         echo -e "  ${GREEN}[2]${NC} 清华源"
         echo -e "  ${GREEN}[3]${NC} 阿里云源"
         echo -e "  ${GREEN}[4]${NC} 华为云源"
@@ -2613,36 +2691,89 @@ change_source() {
         echo
         
         case "$c" in
-            1) MIRROR="mirrors.ustc.edu.cn" ;;
-            2) MIRROR="mirrors.tuna.tsinghua.edu.cn" ;;
-            3) MIRROR="mirrors.aliyun.com" ;;
-            4) MIRROR="mirrors.huaweicloud.com" ;;
+            1) 
+                DEBIAN_MIRROR="https://mirrors.ustc.edu.cn/debian"
+                PVE_MIRROR="https://mirrors.ustc.edu.cn/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.ustc.edu.cn/proxmox"
+                ;;
+            2) 
+                DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
+                PVE_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox"
+                ;;
+            3) 
+                DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
+                PVE_MIRROR="https://mirrors.aliyun.com/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.aliyun.com/proxmox"
+                ;;
+            4) 
+                DEBIAN_MIRROR="https://mirrors.huaweicloud.com/debian"
+                PVE_MIRROR="https://mirrors.huaweicloud.com/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.huaweicloud.com/proxmox"
+                ;;
             0) break ;;
             *) continue ;;
         esac
         
+        echo -e "${YELLOW}安全更新源选择:${NC}"
+        echo -e "  [1] 使用镜像站安全源 (速度快)"
+        echo -e "  [2] 使用官方安全源 (更新及时)"
+        read -p "请选择 [1-2] (默认: 1): " sec_choice
+        sec_choice=${sec_choice:-1}
+        
+        if [[ "$sec_choice" == "2" ]]; then
+            SECURITY_MIRROR="https://security.debian.org/debian-security"
+        else
+            SECURITY_MIRROR="${DEBIAN_MIRROR/debian/debian-security}"
+        fi
+        
         echo -e "${YELLOW}确认换源? (y/N)${NC}"
         read confirm
-        echo
         [[ "$confirm" != "y" && "$confirm" != "Y" ]] && continue
         
-        # 备份
-        cp /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null
+        echo -e "${YELLOW}正在换源，请稍候...${NC}"
         
-        # 换源
-        cat > /etc/apt/sources.list << EOF
-deb https://$MIRROR/debian trixie main contrib non-free non-free-firmware
-deb https://$MIRROR/debian trixie-updates main contrib non-free non-free-firmware
-deb https://$MIRROR/debian-security trixie-security main contrib non-free non-free-firmware
+        backup_file "/etc/apt/sources.list.d/debian.sources"
+        [[ -f "/etc/apt/sources.list.d/pve-enterprise.sources" ]] && backup_file "/etc/apt/sources.list.d/pve-enterprise.sources"
+        
+        cat > /etc/apt/sources.list.d/debian.sources << EOF
+Types: deb
+URIs: $DEBIAN_MIRROR
+Suites: trixie trixie-updates trixie-backports
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: $SECURITY_MIRROR
+Suites: trixie-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
         
-        # 换 PVE 源
-        echo "deb https://$MIRROR/proxmox/debian/pve trixie pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
+        if [[ -f "/etc/apt/sources.list.d/pve-enterprise.sources" ]]; then
+            sed -i 's/^Types:/#Types:/g' /etc/apt/sources.list.d/pve-enterprise.sources
+            sed -i 's/^URIs:/#URIs:/g' /etc/apt/sources.list.d/pve-enterprise.sources
+        fi
         
-        # 禁用企业源
-        sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list 2>/dev/null
+        cat > /etc/apt/sources.list.d/pve-no-subscription.sources << EOF
+Types: deb
+URIs: $PVE_MIRROR
+Suites: trixie
+Components: pve-no-subscription
+Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+EOF
+        
+        if [[ -f "/usr/share/perl5/PVE/APLInfo.pm" ]]; then
+            backup_file "/usr/share/perl5/PVE/APLInfo.pm"
+            sed -i "s|https://mirrors.ustc.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.huaweicloud.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|http://download.proxmox.com|$CT_MIRROR|g" /usr/share/perl5/PVE/APLInfo.pm
+        fi
         
         echo -e "${GREEN}换源完成${NC}"
+        echo -e "${YELLOW}已更换: Debian源 / PVE源 / CT模板源${NC}"
         apt update
         pause_func
     done
