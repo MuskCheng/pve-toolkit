@@ -150,42 +150,80 @@ jobs:
       - name: Get containerd version
         id: containerd
         run: |
-          CONTAINERD_VER=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
-            gunzip | grep -A5 "^Package: containerd.io$" | grep "^Version:" | head -1 | awk '{print $2}')
+          PKG_INFO=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
+            gunzip | grep -A20 "^Package: containerd.io$" | head -20)
+          CONTAINERD_VER=$(echo "$PKG_INFO" | grep "^Version:" | head -1 | awk '{print $2}')
+          CONTAINERD_FILE=$(echo "$PKG_INFO" | grep "^Filename:" | head -1 | awk '{print $2}')
           echo "version=$CONTAINERD_VER" >> $GITHUB_OUTPUT
+          echo "filename=$CONTAINERD_FILE" >> $GITHUB_OUTPUT
+          echo "containerd version: $CONTAINERD_VER"
+          echo "containerd file: $CONTAINERD_FILE"
 
       - name: Get buildx version
         id: buildx
         run: |
-          BUILDX_VER=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
-            gunzip | grep -A5 "^Package: docker-buildx-plugin$" | grep "^Version:" | head -1 | awk '{print $2}')
+          PKG_INFO=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
+            gunzip | grep -A20 "^Package: docker-buildx-plugin$" | head -20)
+          BUILDX_VER=$(echo "$PKG_INFO" | grep "^Version:" | head -1 | awk '{print $2}')
+          BUILDX_FILE=$(echo "$PKG_INFO" | grep "^Filename:" | head -1 | awk '{print $2}')
           echo "version=$BUILDX_VER" >> $GITHUB_OUTPUT
+          echo "filename=$BUILDX_FILE" >> $GITHUB_OUTPUT
+          echo "buildx version: $BUILDX_VER"
+          echo "buildx file: $BUILDX_FILE"
+
+      - name: Get docker-ce filename
+        id: docker-ce
+        run: |
+          PKG_INFO=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
+            gunzip | grep -A20 "^Package: docker-ce$" | head -20)
+          DOCKER_CE_FILE=$(echo "$PKG_INFO" | grep "^Filename:" | head -1 | awk '{print $2}')
+          echo "filename=$DOCKER_CE_FILE" >> $GITHUB_OUTPUT
+          echo "docker-ce file: $DOCKER_CE_FILE"
+
+      - name: Get docker-ce-cli filename
+        id: docker-ce-cli
+        run: |
+          PKG_INFO=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
+            gunzip | grep -A20 "^Package: docker-ce-cli$" | head -20)
+          DOCKER_CLI_FILE=$(echo "$PKG_INFO" | grep "^Filename:" | head -1 | awk '{print $2}')
+          echo "filename=$DOCKER_CLI_FILE" >> $GITHUB_OUTPUT
+          echo "docker-ce-cli file: $DOCKER_CLI_FILE"
+
+      - name: Get docker-compose-plugin filename
+        id: compose-plugin
+        run: |
+          PKG_INFO=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
+            gunzip | grep -A20 "^Package: docker-compose-plugin$" | head -20)
+          COMPOSE_FILE=$(echo "$PKG_INFO" | grep "^Filename:" | head -1 | awk '{print $2}')
+          echo "filename=$COMPOSE_FILE" >> $GITHUB_OUTPUT
+          echo "compose-plugin file: $COMPOSE_FILE"
 
       - name: Download Docker packages
         run: |
-          CONTAINERD_VER="${{ steps.containerd.outputs.version }}"
-          BUILDX_VER="${{ steps.buildx.outputs.version }}"
+          CONTAINERD_FILE="${{ steps.containerd.outputs.filename }}"
+          BUILDX_FILE="${{ steps.buildx.outputs.filename }}"
+          DOCKER_CE_FILE="${{ steps.docker-ce.outputs.filename }}"
+          DOCKER_CLI_FILE="${{ steps.docker-ce-cli.outputs.filename }}"
+          COMPOSE_FILE="${{ steps.compose-plugin.outputs.filename }}"
           
           echo "📦 Downloading Docker packages..."
           echo "  Docker: ${DOCKER_VER_CLEAN}"
           echo "  Compose: ${COMPOSE_VER_CLEAN}"
-          echo "  containerd: ${CONTAINERD_VER}"
-          echo "  buildx: ${BUILDX_VER}"
           
           curl -fSL -o offline/docker/containerd.io.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/containerd.io_${CONTAINERD_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/${CONTAINERD_FILE}"
           
           curl -fSL -o offline/docker/docker-ce.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-ce_${DOCKER_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/${DOCKER_CE_FILE}"
           
           curl -fSL -o offline/docker/docker-ce-cli.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-ce-cli_${DOCKER_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/${DOCKER_CLI_FILE}"
           
           curl -fSL -o offline/docker/docker-buildx-plugin.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-buildx-plugin_${BUILDX_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/${BUILDX_FILE}"
           
           curl -fSL -o offline/docker/docker-compose-plugin.deb \
-            "https://download.docker.com/linux/debian/pool/stable/amd64/docker-compose-plugin_${COMPOSE_VER}_amd64.deb"
+            "https://download.docker.com/linux/debian/${COMPOSE_FILE}"
           
           echo "✅ Downloads complete"
           ls -lh offline/docker/
