@@ -242,24 +242,6 @@ lxc_menu() {
                     if [[ $? -eq 0 ]]; then
                         echo ""
                         echo -e "${GREEN}容器创建成功!${NC}"
-                        echo ""
-                        echo -ne "是否立即预装 Docker 环境? (y/N): "; read install_docker
-                        if [[ "$install_docker" == "y" || "$install_docker" == "Y" ]]; then
-                            echo ""
-                            echo -e "${YELLOW}正在安装 Docker 环境...${NC}"
-                            
-                            if install_docker_offline_silent "$id"; then
-                                echo -e "${GREEN}Docker 环境安装完成!${NC}"
-                                pct exec "$id" -- docker --version 2>/dev/null || true
-                            else
-                                echo -e "${YELLOW}离线安装失败，尝试在线安装...${NC}"
-                                if check_and_install_docker "$id"; then
-                                    echo -e "${GREEN}Docker 环境安装完成!${NC}"
-                                else
-                                    echo -e "${RED}Docker 环境安装失败，请稍后手动安装${NC}"
-                                fi
-                            fi
-                        fi
                     fi
                 fi
                 pause_func
@@ -2030,8 +2012,9 @@ docker_deploy_template() {
     echo -e "  ${GREEN}[7]${NC} Nginx Proxy Manager (反向代理)"
     echo -e "  ${GREEN}[8]${NC} WordPress (博客)"
     echo -e "  ${GREEN}[9]${NC} Uptime Kuma (监控)"
-    echo -e "  ${GREEN}[0]${NC} 返回"
-    echo -ne "${CYAN}选择: ${NC}"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -e "${YELLOW}💡 提示: 请先创建 LXC 容器，或使用已有容器${NC}"
+        echo -ne "${CYAN}选择: ${NC}"
     read t
     echo
     
