@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.21"
+    VERSION="V0.5.22"
 fi
 
 # 查询 GitHub 最新版本
@@ -133,8 +133,8 @@ EOF
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "${WHITE}请选择您需要的功能:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-    echo -e "  ${GREEN}[1]${NC} LXC 容器管理"
-    echo -e "  ${GREEN}[2]${NC} 系统管理"
+    echo -e "  ${GREEN}[1]${NC} 系统管理"
+    echo -e "  ${GREEN}[2]${NC} LXC 容器管理"
     echo -e "  ${GREEN}[3]${NC} 换源工具"
     echo -e "  ${GREEN}[0]${NC} 退出"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
@@ -2323,6 +2323,7 @@ system_menu() {
         echo -e "  ${GREEN}[6]${NC} 内核管理"
         echo -e "  ${GREEN}[7]${NC} 系统日志"
         echo -e "  ${GREEN}[8]${NC} 修复 Docker 源"
+        echo -e "  ${GREEN}[9]${NC} 屏蔽订阅提示"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -2441,7 +2442,73 @@ system_menu() {
             8)
                 fix_docker_source
                 ;;
+            9)
+               屏蔽_subscription_notice
+                ;;
             0) break ;;
+        esac
+    done
+}
+
+# 屏蔽订阅提示
+屏蔽_subscription_notice() {
+    local js_file="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
+    local backup_file="$js_file.bak"
+    
+    while true; do
+        clear
+        echo -e "${BLUE}═══ 屏蔽订阅提示 ═══${NC}"
+        echo ""
+        
+        if [[ -f "$backup_file" ]]; then
+            echo -e "${GREEN}当前状态: 已屏蔽${NC}"
+        else
+            echo -e "${YELLOW}当前状态: 未屏蔽${NC}"
+        fi
+        echo ""
+        echo -e "${CYAN}[1]${NC} 屏蔽订阅提示"
+        echo -e "${CYAN}[2]${NC} 恢复订阅提示"
+        echo -e "${CYAN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read choice
+        echo
+        
+        case "$choice" in
+            1)
+                if [[ -f "$backup_file" ]]; then
+                    echo -e "${YELLOW}订阅提示已经被屏蔽${NC}"
+                else
+                    echo -e "${YELLOW}正在屏蔽订阅提示...${NC}"
+                    if [[ ! -f "$js_file" ]]; then
+                        echo -e "${RED}错误: 文件不存在 $js_file${NC}"
+                        pause_func
+                        continue
+                    fi
+                    cp "$js_file" "$backup_file"
+                    sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" "$js_file" 2>/dev/null
+                    rm -f "${js_file}.bak" 2>/dev/null
+                    systemctl restart pveproxy.service
+                    echo -e "${GREEN}已屏蔽订阅提示${NC}"
+                    echo -e "${YELLOW}请刷新浏览器或重新登录 PVE Web${NC}"
+                fi
+                pause_func
+                ;;
+            2)
+                if [[ -f "$backup_file" ]]; then
+                    echo -e "${YELLOW}正在恢复订阅提示...${NC}"
+                    mv "$backup_file" "$js_file"
+                    systemctl restart pveproxy.service
+                    echo -e "${GREEN}已恢复订阅提示${NC}"
+                else
+                    echo -e "${YELLOW}订阅提示未被屏蔽（无备份文件）${NC}"
+                fi
+                pause_func
+                ;;
+            0)
+                return ;;
+            *)
+                echo -e "${RED}无效选择${NC}"
+                ;;
         esac
     done
 }
@@ -2584,8 +2651,8 @@ main() {
         echo
         
         case "$choice" in
-            1) lxc_menu ;;
-            2) system_menu ;;
+            1) system_menu ;;
+            2) lxc_menu ;;
             3) change_source ;;
             0) echo "再见"; exit 0 ;;
         esac
