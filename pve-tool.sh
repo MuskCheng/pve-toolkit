@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.25"
+    VERSION="V0.5.26"
 fi
 
 # 查询 GitHub 最新版本
@@ -69,7 +69,84 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
-DEBUG=''
+
+# 全局变量
+PVE_MAJOR_VERSION=""
+PVE_FULL_VERSION=""
+DEBUG_MODE=false
+
+# 检查调试模式
+for arg in "$@"; do
+    if [[ "$arg" == "--debug" ]]; then
+        DEBUG_MODE=true
+        echo -e "${YELLOW}调试模式已启用${NC}"
+    fi
+done
+
+# 检查依赖包
+check_packages() {
+    local packages=("curl")
+    local missing=()
+    
+    for pkg in "${packages[@]}"; do
+        if ! command -v "$pkg" &> /dev/null; then
+            missing+=("$pkg")
+        fi
+    done
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}缺少依赖包: ${missing[*]}${NC}"
+        echo -e "${YELLOW}正在安装...${NC}"
+        apt update && apt install -y "${missing[@]}" 2>/dev/null
+    fi
+}
+
+# 检查 PVE 版本（增强版）
+check_pve_version() {
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        echo -e "${YELLOW}调试模式：跳过 PVE 版本检测${NC}"
+        PVE_MAJOR_VERSION="debug"
+        return
+    fi
+    
+    if ! command -v pveversion &>/dev/null; then
+        echo -e "${RED}错误: 非 PVE 环境${NC}"
+        echo -e "${YELLOW}本工具仅支持 Proxmox VE 系统${NC}"
+        exit 1
+    fi
+    
+    local pve_version
+    pve_version=$(pveversion | head -n1 | cut -d'/' -f2 | cut -d'-' -f1)
+    PVE_FULL_VERSION="$pve_version"
+    PVE_MAJOR_VERSION=$(echo "$pve_version" | cut -d'.' -f1)
+    
+    echo -e "${GREEN}检测到 PVE 版本: $pve_version${NC}"
+    
+    if [[ "$PVE_MAJOR_VERSION" != "9" ]]; then
+        echo -e "${RED}════════════════════════════════════════${NC}"
+        echo -e "${RED}警告: 当前为 PVE $PVE_MAJOR_VERSION.x (推荐 PVE 9.x)${NC}"
+        echo -e "${RED}换源等操作可能导致软件源错配或系统异常${NC}"
+        echo -e "${RED}════════════════════════════════════════${NC}"
+        echo ""
+        read -p "确认继续? 输入 'yes': " confirm
+        if [[ "$confirm" != "yes" ]]; then
+            exit 0
+        fi
+    fi
+}
+
+# 拦截非 PVE9 环境的破坏性操作
+block_non_pve9() {
+    local feature="$1"
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        return 0
+    fi
+    if [[ "${PVE_MAJOR_VERSION:-}" != "9" ]]; then
+        echo -e "${RED}已拦截: 非 PVE9 环境禁止执行「$feature」${NC}"
+        return 1
+    fi
+    return 0
+}
 
 get_compose_cmd() {
     local lxc_id=$1
@@ -2678,6 +2755,14 @@ fix_docker_source() {
 
 # 换源
 change_source() {
+    block_non_pve9 "更换软件源" || return 1
+    
+    if ! ping -c 1 mirrors.tuna.tsinghua.edu.cn &> /dev/null 2>&1; then
+        echo -e "${RED}网络连接失败，请检查网络${NC}"
+        pause_func
+        return 1
+    fi
+    
     while true; do
         clear
         echo -e "${BLUE}════════ 换源工具 ════════${NC}"
