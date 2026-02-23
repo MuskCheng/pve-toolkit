@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.26"
+    VERSION="V0.5.27"
 fi
 
 # 查询 GitHub 最新版本
@@ -70,9 +70,9 @@ WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# 全局变量
-PVE_MAJOR_VERSION=""
-PVE_FULL_VERSION=""
+# 全局变量（从环境变量继承或重新检测）
+PVE_MAJOR_VERSION="${PVE_MAJOR_VERSION:-}"
+PVE_FULL_VERSION="${PVE_FULL_VERSION:-}"
 DEBUG_MODE=false
 
 # 检查调试模式
@@ -83,57 +83,13 @@ for arg in "$@"; do
     fi
 done
 
-# 检查依赖包
-check_packages() {
-    local packages=("curl")
-    local missing=()
-    
-    for pkg in "${packages[@]}"; do
-        if ! command -v "$pkg" &> /dev/null; then
-            missing+=("$pkg")
-        fi
-    done
-    
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo -e "${YELLOW}缺少依赖包: ${missing[*]}${NC}"
-        echo -e "${YELLOW}正在安装...${NC}"
-        apt update && apt install -y "${missing[@]}" 2>/dev/null
+# 如果环境变量为空，重新检测（兼容直接运行）
+if [[ -z "$PVE_MAJOR_VERSION" ]]; then
+    if command -v pveversion &>/dev/null; then
+        PVE_FULL_VERSION=$(pveversion | head -n1 | cut -d'/' -f2 | cut -d'-' -f1)
+        PVE_MAJOR_VERSION=$(echo "$PVE_FULL_VERSION" | cut -d'.' -f1)
     fi
-}
-
-# 检查 PVE 版本（增强版）
-check_pve_version() {
-    if [[ "$DEBUG_MODE" == "true" ]]; then
-        echo -e "${YELLOW}调试模式：跳过 PVE 版本检测${NC}"
-        PVE_MAJOR_VERSION="debug"
-        return
-    fi
-    
-    if ! command -v pveversion &>/dev/null; then
-        echo -e "${RED}错误: 非 PVE 环境${NC}"
-        echo -e "${YELLOW}本工具仅支持 Proxmox VE 系统${NC}"
-        exit 1
-    fi
-    
-    local pve_version
-    pve_version=$(pveversion | head -n1 | cut -d'/' -f2 | cut -d'-' -f1)
-    PVE_FULL_VERSION="$pve_version"
-    PVE_MAJOR_VERSION=$(echo "$pve_version" | cut -d'.' -f1)
-    
-    echo -e "${GREEN}检测到 PVE 版本: $pve_version${NC}"
-    
-    if [[ "$PVE_MAJOR_VERSION" != "9" ]]; then
-        echo -e "${RED}════════════════════════════════════════${NC}"
-        echo -e "${RED}警告: 当前为 PVE $PVE_MAJOR_VERSION.x (推荐 PVE 9.x)${NC}"
-        echo -e "${RED}换源等操作可能导致软件源错配或系统异常${NC}"
-        echo -e "${RED}════════════════════════════════════════${NC}"
-        echo ""
-        read -p "确认继续? 输入 'yes': " confirm
-        if [[ "$confirm" != "yes" ]]; then
-            exit 0
-        fi
-    fi
-}
+fi
 
 # 拦截非 PVE9 环境的破坏性操作
 block_non_pve9() {
