@@ -208,10 +208,34 @@ lxc_menu() {
                 echo -e "${YELLOW}使用模板: $latest_template${NC}"
                 template=$latest_template
                 mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-8}
+                
+                echo ""
+                echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+                echo -e "${YELLOW}  容器类型说明${NC}"
+                echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+                echo -e "  ${GREEN}[1]${NC} 特权容器"
+                echo -e "      • Docker 支持最佳，无需额外配置"
+                echo -e "      • systemd 完全兼容"
+                echo -e "      • ${RED}安全性较低 (容器 root = 宿主机 root)${NC}"
+                echo ""
+                echo -e "  ${GREEN}[2]${NC} 无特权容器"
+                echo -e "      • 安全性高 (容器 root 映射为 uid 100000+)"
+                echo -e "      • ${RED}Docker 需额外配置${NC}"
+                echo -e "      • ${RED}部分应用可能不兼容${NC}"
+                echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+                echo -ne "容器类型 [1]: "; read ct_type
+                ct_type=${ct_type:-1}
+                
+                if [[ "$ct_type" == "2" ]]; then
+                    unpriv_flag="--unprivileged 1"
+                else
+                    unpriv_flag="--unprivileged 0"
+                fi
+                
                 if [[ -n "$id" && -n "$hn" ]]; then
                     pct create "$id" local:vztmpl/"$template" \
                         --hostname "$hn" --memory "$mem" --cores "$cores" --rootfs local:"$disk" \
-                        --net0 "name=eth0,bridge=vmbr0,ip=dhcp" --unprivileged 0 --features nesting=1,keyctl=1 --start 1
+                        --net0 "name=eth0,bridge=vmbr0,ip=dhcp" $unpriv_flag --features nesting=1,keyctl=1 --start 1
                     
                     if [[ $? -eq 0 ]]; then
                         echo ""
@@ -252,6 +276,111 @@ lxc_menu() {
     done
 }
 
+# 容器类型转换
+lxc_convert_type() {
+    clear
+    echo -e "${BLUE}═══ 转换容器类型 ═══${NC}"
+    
+    pct list
+    echo ""
+    echo -ne "请输入容器 ID: "; read id
+    
+    if [[ -z "$id" ]]; then
+        echo -e "${RED}未输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    if ! pct status "$id" &>/dev/null; then
+        echo -e "${RED}容器 $id 不存在${NC}"
+        pause_func
+        return
+    fi
+    
+    local config_file="/etc/pve/lxc/${id}.conf"
+    local current_type=$(grep "^unprivileged:" "$config_file" 2>/dev/null | awk '{print $2}')
+    
+    if [[ "$current_type" == "1" ]]; then
+        current_type_str="无特权容器"
+        target_type_str="特权容器"
+        target_value=0
+    else
+        current_type_str="特权容器"
+        target_type_str="无特权容器"
+        target_value=1
+    fi
+    
+    echo ""
+    echo -e "${CYAN}当前类型: ${GREEN}$current_type_str${NC}"
+    echo ""
+    echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}  容器类型说明${NC}"
+    echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+    echo -e "  ${GREEN}特权容器${NC}"
+    echo -e "      • Docker 支持最佳，无需额外配置"
+    echo -e "      • systemd 完全兼容"
+    echo -e "      • ${RED}安全性较低 (容器 root = 宿主机 root)${NC}"
+    echo ""
+    echo -e "  ${GREEN}无特权容器${NC}"
+    echo -e "      • 安全性高 (容器 root 映射为 uid 100000+)"
+    echo -e "      • ${RED}Docker 需额外配置${NC}"
+    echo -e "      • ${RED}部分应用可能不兼容${NC}"
+    echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${YELLOW}将转换为: ${GREEN}$target_type_str${NC}"
+    
+    if [[ "$target_value" == "1" ]]; then
+        echo ""
+        echo -e "${RED}⚠️  警告: 特权 → 无特权转换${NC}"
+        echo -e "${RED}   • 容器内所有文件的所有权将被重新映射${NC}"
+        echo -e "${RED}   • 建议先备份重要数据${NC}"
+        echo -e "${RED}   • 转换后部分应用可能无法正常运行${NC}"
+    fi
+    
+    echo ""
+    echo -ne "确认转换? (y/N): "; read confirm
+    
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo -e "${YELLOW}已取消${NC}"
+        pause_func
+        return
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}正在停止容器...${NC}"
+    pct stop "$id" 2>/dev/null
+    
+    echo -e "${YELLOW}正在修改配置...${NC}"
+    
+    if grep -q "^unprivileged:" "$config_file"; then
+        sed -i "s/^unprivileged:.*/unprivileged: $target_value/" "$config_file"
+    else
+        echo "unprivileged: $target_value" >> "$config_file"
+    fi
+    
+    if [[ "$target_value" == "1" ]]; then
+        echo -e "${YELLOW}正在转换文件所有权...${NC}"
+        local rootfs=$(grep "^rootfs:" "$config_file" | awk '{print $2}' | cut -d',' -f1)
+        if [[ -n "$rootfs" && -d "$rootfs" ]]; then
+            chown -R 100000:100000 "$rootfs" 2>/dev/null
+            find "$rootfs" -type d -exec chmod 755 {} \; 2>/dev/null
+        fi
+    fi
+    
+    echo -e "${YELLOW}正在启动容器...${NC}"
+    pct start "$id"
+    
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}转换完成!${NC}"
+        echo -e "${GREEN}容器类型已从 $current_type_str 转换为 $target_type_str${NC}"
+    else
+        echo -e "${RED}容器启动失败，请检查配置${NC}"
+    fi
+    
+    pause_func
+}
+
 # 容器操作
 lxc_operate_menu() {
     while true; do
@@ -267,6 +396,7 @@ lxc_operate_menu() {
         echo -e "  ${GREEN}[5]${NC} 克隆容器"
         echo -e "  ${GREEN}[6]${NC} 修改容器资源"
         echo -e "  ${GREEN}[7]${NC} 修改网络配置"
+        echo -e "  ${GREEN}[8]${NC} 转换容器类型"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -319,6 +449,9 @@ lxc_operate_menu() {
                 ;;
             7)
                 lxc_change_network
+                ;;
+            8)
+                lxc_convert_type
                 ;;
             0) break ;;
         esac
