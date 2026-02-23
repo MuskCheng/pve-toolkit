@@ -97,15 +97,16 @@ pause_func() {
 # 检查 PVE 版本
 if ! command -v pveversion &>/dev/null; then
     echo -e "${RED}抱歉，不支持此系统${NC}"
-    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.0+${NC}"
+    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.1+${NC}"
     exit 1
 fi
 
-PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1)
-if [[ -z "$PVE_VER" || "$PVE_VER" -lt 9 ]]; then
+PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1,2)
+PVE_MINOR=$(echo "$PVE_VER" | cut -d. -f2)
+if [[ -z "$PVE_VER" || "$PVE_MINOR" -lt 1 ]]; then
     echo -e "${RED}抱歉，不支持此版本${NC}"
     echo -e "${YELLOW}当前版本: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
-    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.0 或更高版本${NC}"
+    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.1 或更高版本${NC}"
     exit 1
 fi
 
@@ -663,6 +664,178 @@ get_latest_compose_version() {
     echo "$version"
 }
 
+# Docker 离线安装
+install_docker_offline() {
+    local offline_dir="/var/lib/vz/template/cache/pve-toolkit-offline"
+    local offline_file="$offline_dir.tar.gz"
+    
+    echo -e "${BLUE}════════ Docker 离线安装 ════════${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "请输入容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}未输入容器 ID${NC}"
+        return 1
+    fi
+    
+    if ! pct status "$lxc_id" &>/dev/null; then
+        echo -e "${RED}容器 $lxc_id 不存在${NC}"
+        return 1
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}检查容器系统版本...${NC}"
+    OS_INFO=$(pct exec "$lxc_id" -- cat /etc/os-release 2>/dev/null || echo "")
+    if [[ ! "$OS_INFO" =~ "trixie" && ! "$OS_INFO" =~ "Debian GNU/Linux 13" ]]; then
+        echo -e "${YELLOW}警告: 容器可能不是 Debian 13 (Trixie)${NC}"
+        echo -e "${YELLOW}离线包仅支持 Debian 13 (Trixie) / amd64 架构${NC}"
+        echo -ne "继续安装? (y/N): "; read confirm
+        if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+            return 1
+        fi
+    fi
+    
+    local use_local="n"
+    if [[ -f "$offline_file" ]]; then
+        echo ""
+        echo -e "${GREEN}检测到本地离线包: $offline_file${NC}"
+        ls -lh "$offline_file" 2>/dev/null
+        echo -ne "使用本地离线包? (Y/n): "; read use_local
+    fi
+    
+    if [[ "$use_local" != "n" && "$use_local" != "N" ]]; then
+        echo ""
+        echo -e "${YELLOW}解压本地离线包...${NC}"
+        rm -rf "$offline_dir"
+        mkdir -p "$offline_dir"
+        tar -xzf "$offline_file" -C "$offline_dir"
+    else
+        echo ""
+        echo -e "${YELLOW}选择下载源:${NC}"
+        echo -e "  ${GREEN}[1]${NC} GitHub 代理 (ghproxy.com) - 国内推荐"
+        echo -e "  ${GREEN}[2]${NC} GitHub 原始 - 国外推荐"
+        echo -e "  ${GREEN}[3]${NC} 本地文件 (已下载)"
+        echo -ne "选择: "; read source_choice
+        
+        OFFLINE_URL=""
+        case "$source_choice" in
+            1)
+                OFFLINE_URL="https://ghproxy.com/https://github.com/MuskCheng/pve-toolkit/releases/download/${LATEST_VERSION}/pve-toolkit-offline-${LATEST_VERSION}-amd64.tar.gz"
+                ;;
+            2)
+                OFFLINE_URL="https://github.com/MuskCheng/pve-toolkit/releases/download/${LATEST_VERSION}/pve-toolkit-offline-${LATEST_VERSION}-amd64.tar.gz"
+                ;;
+            3)
+                echo -ne "请输入离线包路径: "; read offline_path
+                if [[ -f "$offline_path" ]]; then
+                    cp "$offline_path" "$offline_file"
+                    echo -e "${GREEN}已复制到: $offline_file${NC}"
+                else
+                    echo -e "${RED}文件不存在: $offline_path${NC}"
+                    return 1
+                fi
+                ;;
+            *)
+                echo -e "${RED}无效选择${NC}"
+                return 1
+                ;;
+        esac
+        
+        if [[ -n "$OFFLINE_URL" ]]; then
+            echo ""
+            echo -e "${YELLOW}下载离线包...${NC}"
+            echo -e "${CYAN}URL: $OFFLINE_URL${NC}"
+            
+            DOWNLOAD_SUCCESS=0
+            
+            if command -v curl &>/dev/null; then
+                if curl -L --progress-bar -fSL --connect-timeout 30 --max-time 600 "$OFFLINE_URL" -o "$offline_file"; then
+                    DOWNLOAD_SUCCESS=1
+                fi
+            elif command -v wget &>/dev/null; then
+                if wget --timeout=600 -O "$offline_file" "$OFFLINE_URL"; then
+                    DOWNLOAD_SUCCESS=1
+                fi
+            fi
+            
+            if [[ $DOWNLOAD_SUCCESS -eq 0 ]]; then
+                echo -e "${RED}下载失败${NC}"
+                echo -e "${YELLOW}请手动下载离线包:${NC}"
+                echo -e "  ${CYAN}https://github.com/MuskCheng/pve-toolkit/releases${NC}"
+                rm -f "$offline_file"
+                return 1
+            fi
+            
+            echo -e "${GREEN}下载完成${NC}"
+            ls -lh "$offline_file"
+            
+            echo ""
+            echo -e "${YELLOW}解压离线包...${NC}"
+            rm -rf "$offline_dir"
+            mkdir -p "$offline_dir"
+            tar -xzf "$offline_file" -C "$offline_dir"
+        fi
+    fi
+    
+    if [[ ! -d "$offline_dir" ]]; then
+        echo -e "${RED}离线包目录不存在${NC}"
+        return 1
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}[1/4] 复制文件到容器...${NC}"
+    pct exec "$lxc_id" -- mkdir -p /tmp/docker /tmp/images
+    pct push "$lxc_id" "$offline_dir/docker/" /tmp/docker/ --recursive 2>/dev/null || {
+        echo -e "${RED}复制 Docker 包失败${NC}"
+        return 1
+    }
+    pct push "$lxc_id" "$offline_dir/images/" /tmp/images/ --recursive 2>/dev/null || {
+        echo -e "${RED}复制镜像文件失败${NC}"
+        return 1
+    }
+    
+    echo -e "${YELLOW}[2/4] 安装 Docker...${NC}"
+    pct exec "$lxc_id" -- bash -c '
+        cd /tmp/docker
+        for deb in *.deb; do
+            echo "  安装 $deb..."
+            dpkg -i "$deb" 2>/dev/null || true
+        done
+        apt-get install -f -y
+    '
+    
+    echo -e "${YELLOW}[3/4] 启动 Docker 服务...${NC}"
+    pct exec "$lxc_id" -- systemctl enable docker 2>/dev/null || true
+    pct exec "$lxc_id" -- systemctl start docker 2>/dev/null || true
+    
+    echo -e "${YELLOW}[4/4] 加载 Lucky V2 镜像...${NC}"
+    pct exec "$lxc_id" -- docker load -i /tmp/images/lucky.tar 2>/dev/null || {
+        echo -e "${YELLOW}警告: Lucky 镜像加载失败，可能是文件不存在${NC}"
+    }
+    
+    pct exec "$lxc_id" -- rm -rf /tmp/docker /tmp/images
+    
+    echo ""
+    echo -e "${GREEN}═══════════════════════════════════════${NC}"
+    echo -e "${GREEN}  安装完成${NC}"
+    echo -e "${GREEN}═══════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${GREEN}Docker 版本:${NC}"
+    pct exec "$lxc_id" -- docker --version 2>/dev/null || echo -e "${RED}Docker 未正确安装${NC}"
+    echo ""
+    echo -e "${GREEN}Docker Compose 版本:${NC}"
+    pct exec "$lxc_id" -- docker compose version 2>/dev/null || echo -e "${YELLOW}Docker Compose 未安装${NC}"
+    echo ""
+    echo -e "${GREEN}Lucky V2 镜像已加载${NC}"
+    echo ""
+    echo -e "${CYAN}启动 Lucky V2 命令:${NC}"
+    echo -e "  docker run -d --name lucky --restart=always --net=host gdy666/lucky:v2"
+    echo ""
+}
+
 # 检查并安装 Docker 和 Docker Compose
 check_and_install_docker() {
     local lxc_id=$1
@@ -896,6 +1069,7 @@ docker_menu() {
         echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
         echo -e "  ${GREEN}[5]${NC} Docker 换源"
         echo -e "  ${GREEN}[6]${NC} Docker 容器管理"
+        echo -e "  ${GREEN}[7]${NC} 安装 Docker (离线包)"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -977,6 +1151,9 @@ docker_menu() {
                 ;;
             6)
                 docker_container_menu
+                ;;
+            7)
+                install_docker_offline
                 ;;
             0) break ;;
         esac

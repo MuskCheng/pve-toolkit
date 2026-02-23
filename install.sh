@@ -27,15 +27,16 @@ fi
 # 检查 PVE
 if ! command -v pveversion &>/dev/null; then
     echo -e "${RED}抱歉，不支持此系统${NC}"
-    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.0+${NC}"
+    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.1+${NC}"
     exit 1
 fi
 
-PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1)
-if [[ -z "$PVE_VER" || "$PVE_VER" -lt 9 ]]; then
+PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1,2)
+PVE_MINOR=$(echo "$PVE_VER" | cut -d. -f2)
+if [[ -z "$PVE_VER" || "$PVE_MINOR" -lt 1 ]]; then
     echo -e "${RED}抱歉，不支持此版本${NC}"
     echo -e "${YELLOW}当前版本: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
-    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.0 或更高版本${NC}"
+    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.1 或更高版本${NC}"
     exit 1
 fi
 

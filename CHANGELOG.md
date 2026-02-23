@@ -2,6 +2,27 @@
 
 所有重要的更改都将记录在此文件中。
 
+## [V0.5.18] - 2026-02-23
+
+### 新增
+
+- **Docker 离线安装功能**
+  - Docker 管理菜单新增"安装 Docker (离线包)"选项
+  - 支持从 GitHub Releases 下载离线包（含 Docker、Docker Compose、Lucky V2）
+  - 支持 GitHub 代理加速下载（国内推荐）
+  - 支持本地离线包安装
+
+- **自动离线包构建工作流**
+  - 添加 GitHub Actions 工作流自动检测 Docker/Lucky 更新
+  - 有更新时自动构建并发布到 Releases
+  - Release 说明中包含各组件版本信息
+
+### 变更
+
+- **系统要求调整**
+  - 最低 PVE 版本从 9.0 调整为 9.1
+  - 最低 Debian 版本保持为 13 (Trixie)
+
 ## [V0.5.17] - 2026-02-23
 
 ### 新增

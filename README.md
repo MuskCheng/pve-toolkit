@@ -13,7 +13,7 @@
 ╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
 ```
 
-🎯 专为 **Proxmox VE 9.0+** 打造的 LXC 容器管理工具
+🎯 专为 **Proxmox VE 9.1+** 打造的 LXC 容器管理工具
 
 [![Version](https://img.shields.io/github/v/release/MuskCheng/pve-toolkit?display_name=tag&label=%E7%89%88%E6%9C%AC&sort=semver&color=blue&logo=github)](https://github.com/MuskCheng/pve-toolkit/releases/latest)
 [![GitHub Stars](https://img.shields.io/github/stars/MuskCheng/pve-toolkit?style=flat&color=yellow&logo=github)](https://github.com/MuskCheng/pve-toolkit/stargazers)
@@ -53,7 +53,7 @@
 
 | 项目 | 要求 |
 |:---:|:---:|
-| 平台 | Proxmox VE 9.0+ |
+| 平台 | Proxmox VE 9.1+ |
 | 权限 | root |
 
 ### ⚡ 一键安装
