@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.22"
+    VERSION="V0.5.23"
 fi
 
 # 查询 GitHub 最新版本
@@ -2485,11 +2485,16 @@ system_menu() {
                         continue
                     fi
                     cp "$js_file" "$backup_file"
-                    sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" "$js_file" 2>/dev/null
-                    rm -f "${js_file}.bak" 2>/dev/null
-                    systemctl restart pveproxy.service
-                    echo -e "${GREEN}已屏蔽订阅提示${NC}"
-                    echo -e "${YELLOW}请刷新浏览器或重新登录 PVE Web${NC}"
+                    
+                    if grep -q "res.data.status.toLowerCase() !== 'active'" "$js_file"; then
+                        sed -i "s/res.data.status.toLowerCase() !== 'active'/res.data.status.toLowerCase() === 'active'/g" "$js_file"
+                        systemctl restart pveproxy.service
+                        echo -e "${GREEN}已屏蔽订阅提示${NC}"
+                        echo -e "${YELLOW}请刷新浏览器或重新登录 PVE Web${NC}"
+                    else
+                        echo -e "${RED}未找到订阅检查代码，PVE 版本可能已更新${NC}"
+                        rm -f "$backup_file"
+                    fi
                 fi
                 pause_func
                 ;;
