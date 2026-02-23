@@ -55,7 +55,7 @@ jobs:
         run: |
           DOCKER_VER=$(curl -sL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages.gz" | \
             gunzip | grep -A10 "^Package: docker-ce$" | grep "^Version:" | head -1 | awk '{print $2}')
-          DOCKER_VER_CLEAN=$(echo "$DOCKER_VER" | sed 's/-[0-9]~.*//')
+          DOCKER_VER_CLEAN=$(echo "$DOCKER_VER" | sed 's/-[0-9]~.*//' | sed 's/^[0-9]*://')
           echo "version=$DOCKER_VER" >> $GITHUB_OUTPUT
           echo "version_clean=$DOCKER_VER_CLEAN" >> $GITHUB_OUTPUT
           echo "Docker version: $DOCKER_VER (clean: $DOCKER_VER_CLEAN)"
