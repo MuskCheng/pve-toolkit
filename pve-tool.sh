@@ -802,8 +802,8 @@ check_and_install_docker() {
         pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y gnupg curl' 2>&1 || true
         
         if pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/apt/keyrings' 2>&1 && \
-           pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
-           pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
+           pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
+           pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
             echo -e "${GREEN}镜像源配置成功，开始安装 Docker...${NC}"
             if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' 2>&1; then
                 pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
@@ -917,7 +917,7 @@ check_and_install_docker() {
             echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
             COMPOSE_URLS=(
                 "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
-                "https://mirrors.tuna.tsinghua.edu.cn/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
+                "https://mirrors.aliyun.com/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
                 "https://ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
                 "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
                 "https://gh.xxooo.cf/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
@@ -1318,7 +1318,7 @@ docker_change_registry() {
             echo -e "${GREEN}已选择: 耗子面板${NC}"
             ;;
         4)
-            REGISTRY_MIRRORS="https://docker.mirrors.tuna.tsinghua.edu.cn"
+            REGISTRY_MIRRORS="https://docker.mirrors.aliyun.com"
             echo -e "${GREEN}已选择: 清华镜像${NC}"
             ;;
         5)
@@ -2298,7 +2298,7 @@ kernel_management() {
         case "$k" in
             1)
                 echo -e "${YELLOW}正在获取可用内核列表...${NC}"
-                local kernel_url="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve/dists/trixie/pve-no-subscription/binary-amd64/Packages"
+                local kernel_url="https://mirrors.aliyun.com/proxmox/debian/pve/dists/trixie/pve-no-subscription/binary-amd64/Packages"
                 local kernels=$(curl -s "$kernel_url" 2>/dev/null | grep -E '^Package: (pve-kernel|proxmox-kernel)' | awk '{print $2}' | sort -V | tail -10)
                 if [[ -n "$kernels" ]]; then
                     echo -e "${CYAN}可用内核 (最近10个):${NC}"
@@ -2392,8 +2392,8 @@ fix_docker_source() {
             echo -e "${YELLOW}添加清华 Docker 源...${NC}"
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
-            curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
             echo -e "${GREEN}清华 Docker 源添加完成${NC}"
             apt update
             pause_func
@@ -2412,8 +2412,8 @@ fix_docker_source() {
             echo -e "${YELLOW}添加清华 Docker 源...${NC}"
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
-            curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
             echo -e "${GREEN}清华 Docker 源添加完成${NC}"
             apt update
             pause_func
@@ -2427,7 +2427,7 @@ fix_docker_source() {
 change_source() {
     block_non_pve9 "更换软件源" || return 1
     
-    if ! ping -c 1 mirrors.tuna.tsinghua.edu.cn &> /dev/null 2>&1; then
+    if ! ping -c 1 mirrors.aliyun.com &> /dev/null 2>&1; then
         echo -e "${RED}网络连接失败，请检查网络${NC}"
         pause_func
         return 1
@@ -2447,14 +2447,14 @@ change_source() {
         
         case "$c" in
             1) 
-                DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
-                PVE_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve"
-                CT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox"
+                DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
+                PVE_MIRROR="https://mirrors.aliyun.com/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.aliyun.com/proxmox"
                 ;;
             2) 
-                DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
-                PVE_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve"
-                CT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox"
+                DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
+                PVE_MIRROR="https://mirrors.aliyun.com/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.aliyun.com/proxmox"
                 ;;
             3) 
                 DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
@@ -2520,8 +2520,8 @@ EOF
         
         if [[ -f "/usr/share/perl5/PVE/APLInfo.pm" ]]; then
             backup_file "/usr/share/perl5/PVE/APLInfo.pm"
-            sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
-            sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.huaweicloud.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|http://download.proxmox.com|$CT_MIRROR|g" /usr/share/perl5/PVE/APLInfo.pm
