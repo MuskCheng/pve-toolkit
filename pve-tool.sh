@@ -798,6 +798,9 @@ check_and_install_docker() {
         echo -e "${YELLOW}安装 Docker (使用国内镜像源)...${NC}"
         
         echo -e "${YELLOW}配置 Docker CE 镜像源...${NC}"
+        echo -e "${YELLOW}安装必要工具 (gnupg, curl)...${NC}"
+        pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y gnupg curl' 2>&1 || true
+        
         if pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/apt/keyrings' 2>&1 && \
            pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
            pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
