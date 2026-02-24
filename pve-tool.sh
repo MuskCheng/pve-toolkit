@@ -220,7 +220,7 @@ show_lxc_list() {
         
         local ip_addr="-"
         if [[ "$status" == "running" ]]; then
-            local raw_ip=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)
+            local raw_ip=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
             if [[ -n "$raw_ip" && "$raw_ip" =~ ^([0-9.]+)/[0-9]+$ ]]; then
                 ip_addr="${BASH_REMATCH[1]}"
             elif [[ -n "$raw_ip" && "$raw_ip" =~ ^[0-9.]+$ ]]; then
