@@ -795,17 +795,23 @@ check_and_install_docker() {
         fi
     else
         echo -e "${YELLOW}Docker 未安装，开始安装...${NC}"
-        echo -e "${YELLOW}安装 Docker...${NC}"
+        echo -e "${YELLOW}安装 Docker (使用国内镜像源)...${NC}"
         
-        if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker.io' 2>&1; then
-            pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
-            pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
-            
-            if pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null || \
-               pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
-                echo -e "${GREEN}Docker 安装完成${NC}"
-                pct exec "$lxc_id" -- docker --version 2>/dev/null || true
-                DOCKER_AVAILABLE=1
+        echo -e "${YELLOW}配置 Docker CE 镜像源...${NC}"
+        if pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/apt/keyrings' 2>&1 && \
+           pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
+           pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
+            echo -e "${GREEN}镜像源配置成功，开始安装 Docker...${NC}"
+            if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' 2>&1; then
+                pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
+                pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
+                
+                if pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null || \
+                   pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
+                    echo -e "${GREEN}Docker 安装完成${NC}"
+                    pct exec "$lxc_id" -- docker --version 2>/dev/null || true
+                    DOCKER_AVAILABLE=1
+                fi
             fi
         fi
     fi
