@@ -201,8 +201,8 @@ show_lxc_list() {
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
     echo -e "${BLUE}                          LXC 容器列表${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
-    printf " %-6s %-22s %-8s %-10s %-16s %-20s\n" "VMID" "名称" "状态" "特权容器" "IP地址" "Docker端口"
-    echo -e "${BLUE}────────────────────────────────────────────────────────────────────────${NC}"
+    printf " %-5s %-20s %-6s %-6s %-15s\n" "VMID" "名称" "状态" "特权容器" "IP地址"
+    echo -e "${BLUE}────────────────────────────────────────────────────────${NC}"
     
     local containers=$(pct list 2>/dev/null | tail -n +2)
     if [[ -z "$containers" ]]; then
@@ -220,14 +220,8 @@ show_lxc_list() {
         
         local ip_addr="-"
         if [[ "$status" == "running" ]]; then
-            ip_addr=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+\.\d+\.\d+\.\d+' | head -1)
+            ip_addr=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d'/' -f1 | head -1)
             [[ -z "$ip_addr" ]] && ip_addr="-"
-        fi
-        
-        local docker_ports="-"
-        if [[ "$status" == "running" ]]; then
-            docker_ports=$(pct exec "$vmid" -- docker ps --format '{{range .Ports}}{{.PublicPort}},{{end}}' 2>/dev/null | sed 's/,$//' | tr ',' ', ' | sed 's/, $//')
-            [[ -z "$docker_ports" ]] && docker_ports="-"
         fi
         
         local status_text status_color
@@ -246,8 +240,8 @@ show_lxc_list() {
             priv_color="${RED}"
         fi
         
-        printf "${WHITE}%-6s${NC} ${WHITE}%-22s${NC} ${status_color}%-8s${NC} ${priv_color}%-10s${NC} ${WHITE}%-16s${NC} ${WHITE}%-20s${NC}\n" \
-            "$vmid" "$name" "$status_text" "$priv_text" "$ip_addr" "$docker_ports"
+        printf "${WHITE}%-5s${NC} ${WHITE}%-20s${NC} ${status_color}%-6s${NC} ${priv_color}%-6s${NC} ${WHITE}%-15s${NC}\n" \
+            "$vmid" "$name" "$status_text" "$priv_text" "$ip_addr"
     done <<< "$containers"
     
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
