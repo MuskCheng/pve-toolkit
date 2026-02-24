@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.5.34"
+    VERSION="V0.5.35"
 fi
 
 # 查询 GitHub 最新版本
@@ -243,7 +243,7 @@ show_lxc_list() {
             *) status_display="${YELLOW}$status${NC}" ;;
         esac
         
-        printf " %-6s %-22s %-8s %-10s %-16s %-20b\n" "$vmid" "$name" "$status_display" "$priv_status" "$ip_addr" "$docker_ports"
+        echo -e " %-6s %-22s %-8s %-10s %-16s %-20s" "$vmid" "$name" "$status_display" "$priv_status" "$ip_addr" "$docker_ports"
     done <<< "$containers"
     
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
