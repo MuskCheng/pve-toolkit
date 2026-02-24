@@ -2447,19 +2447,21 @@ change_source() {
         
         case "$c" in
             1) 
-                DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
-                PVE_MIRROR="https://mirrors.aliyun.com/proxmox/debian/pve"
-                CT_MIRROR="https://mirrors.aliyun.com/proxmox"
+                DEBIAN_MIRROR="https://mirrors.ustc.edu.cn/debian"
+                PVE_MIRROR="https://mirrors.ustc.edu.cn/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.ustc.edu.cn/proxmox"
                 ;;
             2) 
-                DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
-                PVE_MIRROR="https://mirrors.aliyun.com/proxmox/debian/pve"
-                CT_MIRROR="https://mirrors.aliyun.com/proxmox"
+                DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
+                PVE_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox"
                 ;;
             3) 
+                echo -e "${YELLOW}注意: 阿里云仅支持 Debian 系统源，不支持 PVE 源${NC}"
+                echo -e "${YELLOW}将使用阿里云 Debian 源，PVE 源保持默认${NC}"
                 DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
-                PVE_MIRROR="https://mirrors.aliyun.com/proxmox/debian/pve"
-                CT_MIRROR="https://mirrors.aliyun.com/proxmox"
+                PVE_MIRROR=""
+                CT_MIRROR=""
                 ;;
             4) 
                 DEBIAN_MIRROR="https://mirrors.huaweicloud.com/debian"
@@ -2510,25 +2512,35 @@ EOF
             sed -i 's/^URIs:/#URIs:/g' /etc/apt/sources.list.d/pve-enterprise.sources
         fi
         
-        cat > /etc/apt/sources.list.d/pve-no-subscription.sources << EOF
+        if [[ -n "$PVE_MIRROR" ]]; then
+            cat > /etc/apt/sources.list.d/pve-no-subscription.sources << EOF
 Types: deb
 URIs: $PVE_MIRROR
 Suites: trixie
 Components: pve-no-subscription
 Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 EOF
+        fi
         
         if [[ -f "/usr/share/perl5/PVE/APLInfo.pm" ]]; then
             backup_file "/usr/share/perl5/PVE/APLInfo.pm"
             sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
-            sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
-            sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.ustc.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.huaweicloud.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
-            sed -i "s|http://download.proxmox.com|$CT_MIRROR|g" /usr/share/perl5/PVE/APLInfo.pm
+            if [[ -n "$CT_MIRROR" ]]; then
+                sed -i "s|http://download.proxmox.com|$CT_MIRROR|g" /usr/share/perl5/PVE/APLInfo.pm
+            fi
         fi
         
         echo -e "${GREEN}换源完成${NC}"
-        echo -e "${YELLOW}已更换: Debian源 / PVE源 / CT模板源${NC}"
+        if [[ -n "$PVE_MIRROR" && -n "$CT_MIRROR" ]]; then
+            echo -e "${YELLOW}已更换: Debian源 / PVE源 / CT模板源${NC}"
+        elif [[ -n "$PVE_MIRROR" ]]; then
+            echo -e "${YELLOW}已更换: Debian源 / PVE源${NC}"
+        else
+            echo -e "${YELLOW}已更换: Debian源 (PVE源保持默认)${NC}"
+        fi
         apt update
         pause_func
     done
