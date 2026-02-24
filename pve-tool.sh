@@ -805,7 +805,7 @@ check_and_install_docker() {
            pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
            pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
             echo -e "${GREEN}镜像源配置成功，开始安装 Docker...${NC}"
-            if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' 2>&1; then
+            if pct exec "$lxc_id" -- bash -lc 'apt install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' 2>&1; then
                 pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
                 pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
                 
@@ -820,7 +820,7 @@ check_and_install_docker() {
         
         if [[ $DOCKER_AVAILABLE -eq 0 ]]; then
             echo -e "${RED}Docker CE 安装失败，尝试安装 docker.io...${NC}"
-            if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker.io' 2>&1; then
+            if pct exec "$lxc_id" -- bash -lc 'apt install -y --no-install-recommends docker.io' 2>&1; then
                 pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
                 pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
                 
@@ -859,7 +859,7 @@ check_and_install_docker() {
         COMPOSE_INSTALL_SUCCESS=0
         
         echo -e "${YELLOW}安装必要工具 (curl/wget)...${NC}"
-        CURL_INSTALL_LOG=$(pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y curl wget 2>&1' || true)
+        CURL_INSTALL_LOG=$(pct exec "$lxc_id" -- bash -lc 'apt install -y --no-install-recommends curl wget 2>&1' || true)
         
         HAS_CURL=0
         HAS_WGET=0
