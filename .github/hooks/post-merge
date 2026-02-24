@@ -1,0 +1,6 @@
+#!/bin/bash
+# post-merge hook - 清理拉取后的旧文件
+
+git checkout -q -- .
+
+rm -f *.bak *.old *.tmp 2>/dev/null
