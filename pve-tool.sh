@@ -817,6 +817,21 @@ check_and_install_docker() {
                 fi
             fi
         fi
+        
+        if [[ $DOCKER_AVAILABLE -eq 0 ]]; then
+            echo -e "${RED}Docker CE 安装失败，尝试安装 docker.io...${NC}"
+            if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker.io' 2>&1; then
+                pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
+                pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
+                
+                if pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null || \
+                   pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
+                    echo -e "${GREEN}Docker (docker.io) 安装完成${NC}"
+                    pct exec "$lxc_id" -- docker --version 2>/dev/null || true
+                    DOCKER_AVAILABLE=1
+                fi
+            fi
+        fi
     fi
     
     if [[ $DOCKER_AVAILABLE -eq 0 ]]; then
