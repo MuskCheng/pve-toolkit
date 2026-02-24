@@ -201,7 +201,7 @@ show_lxc_list() {
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
     echo -e "${BLUE}                          LXC 容器列表${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
-    printf "${WHITE} %-6s %-22s %-8s %-10s %-16s %-20s${NC}\n" "VMID" "名称" "状态" "特权容器" "IP地址" "Docker端口"
+    printf " %-6s %-22s %-8s %-10s %-16s %-20s\n" "VMID" "名称" "状态" "特权容器" "IP地址" "Docker端口"
     echo -e "${BLUE}────────────────────────────────────────────────────────────────────────${NC}"
     
     local containers=$(pct list 2>/dev/null | tail -n +2)
@@ -217,12 +217,6 @@ show_lxc_list() {
         local name=$(echo "$line" | awk '{print $NF}')
         
         local unprivileged=$(pct config "$vmid" 2>/dev/null | grep "^unprivileged:" | awk '{print $2}')
-        local priv_status
-        if [[ "$unprivileged" == "1" ]]; then
-            priv_status="${GREEN}否${NC}"
-        else
-            priv_status="${RED}是${NC}"
-        fi
         
         local ip_addr="-"
         if [[ "$status" == "running" ]]; then
@@ -236,14 +230,24 @@ show_lxc_list() {
             [[ -z "$docker_ports" ]] && docker_ports="-"
         fi
         
-        local status_display
+        local status_text status_color
         case "$status" in
-            running) status_display="${GREEN}运行${NC}" ;;
-            stopped) status_display="${RED}停止${NC}" ;;
-            *) status_display="${YELLOW}$status${NC}" ;;
+            running) status_text="运行"; status_color="${GREEN}" ;;
+            stopped) status_text="停止"; status_color="${RED}" ;;
+            *) status_text="$status"; status_color="${YELLOW}" ;;
         esac
         
-        printf " %-6s %-22s %-8s %-10s %-16s %-20s\n" "$vmid" "$name" "$status_display" "$priv_status" "$ip_addr" "$docker_ports"
+        local priv_text priv_color
+        if [[ "$unprivileged" == "1" ]]; then
+            priv_text="否"
+            priv_color="${GREEN}"
+        else
+            priv_text="是"
+            priv_color="${RED}"
+        fi
+        
+        printf "${WHITE}%-6s${NC} ${WHITE}%-22s${NC} ${status_color}%-8s${NC} ${priv_color}%-10s${NC} ${WHITE}%-16s${NC} ${WHITE}%-20s${NC}\n" \
+            "$vmid" "$name" "$status_text" "$priv_text" "$ip_addr" "$docker_ports"
     done <<< "$containers"
     
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
