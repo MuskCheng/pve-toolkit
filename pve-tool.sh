@@ -802,8 +802,8 @@ check_and_install_docker() {
         pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y gnupg curl' 2>&1 || true
         
         if pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/apt/keyrings' 2>&1 && \
-           pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
-           pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
+           pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
+           pct exec "$lxc_id" -- bash -lc 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list' 2>&1; then
             echo -e "${GREEN}镜像源配置成功，开始安装 Docker...${NC}"
             if pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' 2>&1; then
                 pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
@@ -917,7 +917,7 @@ check_and_install_docker() {
             echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
             COMPOSE_URLS=(
                 "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
-                "https://mirrors.ustc.edu.cn/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
+                "https://mirrors.tuna.tsinghua.edu.cn/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
                 "https://ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
                 "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
                 "https://gh.xxooo.cf/https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
@@ -1318,8 +1318,8 @@ docker_change_registry() {
             echo -e "${GREEN}已选择: 耗子面板${NC}"
             ;;
         4)
-            REGISTRY_MIRRORS="https://docker.mirrors.ustc.edu.cn"
-            echo -e "${GREEN}已选择: 中科大镜像${NC}"
+            REGISTRY_MIRRORS="https://docker.mirrors.tuna.tsinghua.edu.cn"
+            echo -e "${GREEN}已选择: 清华镜像${NC}"
             ;;
         5)
             echo -ne "请输入镜像源地址: "; read REGISTRY_MIRRORS
@@ -2359,7 +2359,7 @@ fix_docker_source() {
     echo ""
     echo -e "${CYAN}[1]${NC} 移除 Docker CE 源 (使用系统自带 docker.io)"
     echo -e "${CYAN}[2]${NC} Docker 官方源 (国外)"
-    echo -e "${CYAN}[3]${NC} 中科大 Docker 源 (推荐国内)"
+    echo -e "${CYAN}[3]${NC} 清华 Docker 源 (推荐国内)"
     echo -e "${CYAN}[4]${NC} 阿里云 Docker 源"
     echo -e "${CYAN}[5]${NC} 清华 Docker 源"
     echo -e "${CYAN}[0]${NC} 返回"
@@ -2389,12 +2389,12 @@ fix_docker_source() {
             pause_func
             ;;
         3)
-            echo -e "${YELLOW}添加中科大 Docker 源...${NC}"
+            echo -e "${YELLOW}添加清华 Docker 源...${NC}"
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
-            curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
-            echo -e "${GREEN}中科大 Docker 源添加完成${NC}"
+            curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            echo -e "${GREEN}清华 Docker 源添加完成${NC}"
             apt update
             pause_func
             ;;
@@ -2447,9 +2447,9 @@ change_source() {
         
         case "$c" in
             1) 
-                DEBIAN_MIRROR="https://mirrors.ustc.edu.cn/debian"
-                PVE_MIRROR="https://mirrors.ustc.edu.cn/proxmox/debian/pve"
-                CT_MIRROR="https://mirrors.ustc.edu.cn/proxmox"
+                DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
+                PVE_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox"
                 ;;
             2) 
                 DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
@@ -2520,7 +2520,7 @@ EOF
         
         if [[ -f "/usr/share/perl5/PVE/APLInfo.pm" ]]; then
             backup_file "/usr/share/perl5/PVE/APLInfo.pm"
-            sed -i "s|https://mirrors.ustc.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.aliyun.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.huaweicloud.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
