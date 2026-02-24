@@ -220,8 +220,14 @@ show_lxc_list() {
         
         local ip_addr="-"
         if [[ "$status" == "running" ]]; then
-            ip_addr=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d'/' -f1 | head -1)
-            [[ -z "$ip_addr" ]] && ip_addr="-"
+            local raw_ip=$(pct exec "$vmid" -- ip -4 addr show 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)
+            if [[ -n "$raw_ip" && "$raw_ip" =~ ^([0-9.]+)/[0-9]+$ ]]; then
+                ip_addr="${BASH_REMATCH[1]}"
+            elif [[ -n "$raw_ip" && "$raw_ip" =~ ^[0-9.]+$ ]]; then
+                ip_addr="$raw_ip"
+            else
+                ip_addr="-"
+            fi
         fi
         
         local status_text status_color
