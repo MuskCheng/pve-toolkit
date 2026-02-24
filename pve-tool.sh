@@ -213,8 +213,8 @@ show_lxc_list() {
     
     while IFS= read -r line; do
         local vmid=$(echo "$line" | awk '{print $1}')
-        local name=$(echo "$line" | awk '{print $2}')
-        local status=$(echo "$line" | awk '{print $3}')
+        local status=$(echo "$line" | awk '{print $2}')
+        local name=$(echo "$line" | awk '{print $NF}')
         
         local unprivileged=$(pct config "$vmid" 2>/dev/null | grep "^unprivileged:" | awk '{print $2}')
         local priv_status
