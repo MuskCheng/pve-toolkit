@@ -860,7 +860,7 @@ check_and_install_docker() {
             echo -e "${YELLOW}curl/wget 不可用，尝试使用 pip 安装...${NC}"
             if pct exec "$lxc_id" -- bash -lc 'command -v pip3 &>/dev/null' 2>/dev/null || \
                pct exec "$lxc_id" -- test -x /usr/bin/pip3 2>/dev/null; then
-                if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
+                if pct exec "$lxc_id" -- pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple docker-compose --break-system-packages 2>&1; then
                     PIP_COMPOSE_PATH=$(pct exec "$lxc_id" -- bash -lc 'command -v docker-compose 2>/dev/null' || echo "")
                     if [[ -n "$PIP_COMPOSE_PATH" ]]; then
                         echo -e "${GREEN}Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH${NC}"
@@ -966,7 +966,7 @@ check_and_install_docker() {
                 echo -e "${RED}所有下载方式均失败，尝试 pip 安装...${NC}"
                 if pct exec "$lxc_id" -- bash -lc 'command -v pip3 &>/dev/null' 2>/dev/null || \
                    pct exec "$lxc_id" -- test -x /usr/bin/pip3 2>/dev/null; then
-                    if pct exec "$lxc_id" -- pip3 install docker-compose --break-system-packages 2>&1; then
+                    if pct exec "$lxc_id" -- pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple docker-compose --break-system-packages 2>&1; then
                         PIP_COMPOSE_PATH=$(pct exec "$lxc_id" -- bash -lc 'command -v docker-compose 2>/dev/null' || echo "")
                         if [[ -n "$PIP_COMPOSE_PATH" ]]; then
                             echo -e "${GREEN}Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH${NC}"
