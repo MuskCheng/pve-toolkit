@@ -61,14 +61,14 @@ download_latest_debian_template() {
 }
 
 # 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+WHITE=$'\033[1;37m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 # 全局变量（从环境变量继承或重新检测）
 PVE_MAJOR_VERSION="${PVE_MAJOR_VERSION:-}"
