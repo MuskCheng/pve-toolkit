@@ -2427,11 +2427,10 @@ fix_docker_source() {
 change_source() {
     block_non_pve9 "更换软件源" || return 1
     
-    if ! ping -c 1 mirrors.aliyun.com &> /dev/null 2>&1; then
-        echo -e "${RED}网络连接失败，请检查网络${NC}"
-        pause_func
-        return 1
-    fi
+    DEBIAN_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "trixie")
+    PVE_VERSION=$(pveversion 2>/dev/null | grep -oP 'pve-manager\/\K[0-9]+' || echo "9")
+    
+    echo -e "${CYAN}检测到系统: Debian $DEBIAN_CODENAME, PVE $PVE_VERSION${NC}"
     
     while true; do
         clear
@@ -2440,21 +2439,29 @@ change_source() {
         echo -e "  ${GREEN}[2]${NC} 清华源"
         echo -e "  ${GREEN}[3]${NC} 阿里云源"
         echo -e "  ${GREEN}[4]${NC} 华为云源"
+        echo -e "  ${GREEN}[5]${NC} 南京大学源"
+        echo -e "  ${GREEN}[6]${NC} 腾讯云源"
+        echo -e "  ${GREEN}[7]${NC} Ceph源配置"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
         echo
         
+        TEST_MIRROR=""
         case "$c" in
             1) 
                 DEBIAN_MIRROR="https://mirrors.ustc.edu.cn/debian"
                 PVE_MIRROR="https://mirrors.ustc.edu.cn/proxmox/debian/pve"
                 CT_MIRROR="https://mirrors.ustc.edu.cn/proxmox"
+                CEPH_MIRROR="https://mirrors.ustc.edu.cn/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.ustc.edu.cn"
                 ;;
             2) 
                 DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian"
                 PVE_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/pve"
                 CT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox"
+                CEPH_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.tuna.tsinghua.edu.cn"
                 ;;
             3) 
                 echo -e "${YELLOW}注意: 阿里云仅支持 Debian 系统源，不支持 PVE 源${NC}"
@@ -2462,15 +2469,43 @@ change_source() {
                 DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
                 PVE_MIRROR=""
                 CT_MIRROR=""
+                CEPH_MIRROR=""
+                TEST_MIRROR="mirrors.aliyun.com"
                 ;;
             4) 
                 DEBIAN_MIRROR="https://mirrors.huaweicloud.com/debian"
                 PVE_MIRROR="https://mirrors.huaweicloud.com/proxmox/debian/pve"
                 CT_MIRROR="https://mirrors.huaweicloud.com/proxmox"
+                CEPH_MIRROR="https://mirrors.huaweicloud.com/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.huaweicloud.com"
+                ;;
+            5) 
+                DEBIAN_MIRROR="https://mirror.nju.edu.cn/debian"
+                PVE_MIRROR="https://mirror.nju.edu.cn/proxmox/debian/pve"
+                CT_MIRROR="https://mirror.nju.edu.cn/proxmox"
+                CEPH_MIRROR="https://mirror.nju.edu.cn/proxmox/debian/ceph"
+                TEST_MIRROR="mirror.nju.edu.cn"
+                ;;
+            6) 
+                DEBIAN_MIRROR="https://mirrors.cloud.tencent.com/debian"
+                PVE_MIRROR="https://mirrors.cloud.tencent.com/proxmox/debian/pve"
+                CT_MIRROR="https://mirrors.cloud.tencent.com/proxmox"
+                CEPH_MIRROR="https://mirrors.cloud.tencent.com/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.cloud.tencent.com"
+                ;;
+            7)
+                change_ceph_source
+                continue
                 ;;
             0) break ;;
             *) continue ;;
         esac
+        
+        if ! ping -c 1 "$TEST_MIRROR" &> /dev/null 2>&1; then
+            echo -e "${RED}网络连接失败，无法访问 $TEST_MIRROR${NC}"
+            pause_func
+            continue
+        fi
         
         echo -e "${YELLOW}安全更新源选择:${NC}"
         echo -e "  [1] 使用镜像站安全源 (速度快)"
@@ -2496,27 +2531,33 @@ change_source() {
         cat > /etc/apt/sources.list.d/debian.sources << EOF
 Types: deb
 URIs: $DEBIAN_MIRROR
-Suites: trixie trixie-updates trixie-backports
+Suites: $DEBIAN_CODENAME ${DEBIAN_CODENAME}-updates ${DEBIAN_CODENAME}-backports
 Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 
 Types: deb
 URIs: $SECURITY_MIRROR
-Suites: trixie-security
+Suites: ${DEBIAN_CODENAME}-security
 Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
         
         if [[ -f "/etc/apt/sources.list.d/pve-enterprise.sources" ]]; then
+            backup_file "/etc/apt/sources.list.d/pve-enterprise.sources"
             sed -i 's/^Types:/#Types:/g' /etc/apt/sources.list.d/pve-enterprise.sources
             sed -i 's/^URIs:/#URIs:/g' /etc/apt/sources.list.d/pve-enterprise.sources
+        fi
+        
+        if [[ -f "/etc/apt/sources.list.d/pve-enterprise.list" ]]; then
+            backup_file "/etc/apt/sources.list.d/pve-enterprise.list"
+            echo "# Disabled by PVE Toolkit" > /etc/apt/sources.list.d/pve-enterprise.list
         fi
         
         if [[ -n "$PVE_MIRROR" ]]; then
             cat > /etc/apt/sources.list.d/pve-no-subscription.sources << EOF
 Types: deb
 URIs: $PVE_MIRROR
-Suites: trixie
+Suites: $DEBIAN_CODENAME
 Components: pve-no-subscription
 Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 EOF
@@ -2528,6 +2569,8 @@ EOF
             sed -i "s|https://mirrors.ustc.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.tuna.tsinghua.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             sed -i "s|https://mirrors.huaweicloud.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirror.nju.edu.cn/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
+            sed -i "s|https://mirrors.cloud.tencent.com/proxmox|http://download.proxmox.com|g" /usr/share/perl5/PVE/APLInfo.pm
             if [[ -n "$CT_MIRROR" ]]; then
                 sed -i "s|http://download.proxmox.com|$CT_MIRROR|g" /usr/share/perl5/PVE/APLInfo.pm
             fi
@@ -2543,6 +2586,108 @@ EOF
         fi
         apt update
         pause_func
+    done
+}
+
+change_ceph_source() {
+    if ! command -v ceph &>/dev/null; then
+        echo -e "${YELLOW}未检测到 Ceph 安装，跳过 Ceph 源配置${NC}"
+        pause_func
+        return 0
+    fi
+    
+    CEPH_CODENAME=$(ceph -v 2>/dev/null | grep -oP 'ceph \K[a-z]+' || echo "")
+    if [[ -z "$CEPH_CODENAME" ]]; then
+        CEPH_CODENAME="quincy"
+    fi
+    
+    DEBIAN_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "trixie")
+    
+    while true; do
+        clear
+        echo -e "${BLUE}════════ Ceph 源配置 ════════${NC}"
+        echo -e "检测到 Ceph 版本: ${GREEN}$CEPH_CODENAME${NC}"
+        echo ""
+        echo -e "  ${GREEN}[1]${NC} 中科大 Ceph 源"
+        echo -e "  ${GREEN}[2]${NC} 清华 Ceph 源"
+        echo -e "  ${GREEN}[3]${NC} 华为云 Ceph 源"
+        echo -e "  ${GREEN}[4]${NC} 南京大学 Ceph 源"
+        echo -e "  ${GREEN}[5]${NC} 腾讯云 Ceph 源"
+        echo -e "  ${GREEN}[6]${NC} 移除 Ceph 源 (使用默认)"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read c
+        echo
+        
+        case "$c" in
+            1)
+                CEPH_MIRROR="https://mirrors.ustc.edu.cn/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.ustc.edu.cn"
+                ;;
+            2)
+                CEPH_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.tuna.tsinghua.edu.cn"
+                ;;
+            3)
+                CEPH_MIRROR="https://mirrors.huaweicloud.com/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.huaweicloud.com"
+                ;;
+            4)
+                CEPH_MIRROR="https://mirror.nju.edu.cn/proxmox/debian/ceph"
+                TEST_MIRROR="mirror.nju.edu.cn"
+                ;;
+            5)
+                CEPH_MIRROR="https://mirrors.cloud.tencent.com/proxmox/debian/ceph"
+                TEST_MIRROR="mirrors.cloud.tencent.com"
+                ;;
+            6)
+                if [[ -f "/etc/apt/sources.list.d/ceph.sources" ]]; then
+                    backup_file "/etc/apt/sources.list.d/ceph.sources"
+                    rm -f /etc/apt/sources.list.d/ceph.sources
+                    echo -e "${GREEN}Ceph 源已移除${NC}"
+                    apt update
+                    pause_func
+                    return 0
+                else
+                    echo -e "${YELLOW}Ceph 源文件不存在${NC}"
+                    pause_func
+                    return 0
+                fi
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                continue
+                ;;
+        esac
+        
+        if ! ping -c 1 "$TEST_MIRROR" &> /dev/null 2>&1; then
+            echo -e "${RED}网络连接失败，无法访问 $TEST_MIRROR${NC}"
+            pause_func
+            continue
+        fi
+        
+        echo -e "${YELLOW}确认配置 Ceph 源? (y/N)${NC}"
+        read confirm
+        [[ "$confirm" != "y" && "$confirm" != "Y" ]] && continue
+        
+        if [[ -f "/etc/apt/sources.list.d/ceph.sources" ]]; then
+            backup_file "/etc/apt/sources.list.d/ceph.sources"
+        fi
+        
+        cat > /etc/apt/sources.list.d/ceph.sources << EOF
+Types: deb
+URIs: $CEPH_MIRROR/$CEPH_CODENAME
+Suites: $DEBIAN_CODENAME
+Components: no-subscription
+Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+EOF
+        
+        echo -e "${GREEN}Ceph 源配置完成${NC}"
+        apt update
+        pause_func
+        return 0
     done
 }
 
