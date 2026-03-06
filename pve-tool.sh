@@ -1048,7 +1048,7 @@ docker_menu() {
                 pct list
                 echo -ne "请输入要升级镜像的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    if ! pct exec "$id" -- command -v docker &>/dev/null; then
+                    if ! pct exec "$id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null; then
                         echo -e "${RED}错误: 容器中未安装 Docker${NC}"
                         pause_func
                         continue
@@ -1082,17 +1082,17 @@ docker_menu() {
                     fi
                     
                     echo -e "1. 停止容器..."
-                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD stop"
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD stop"
                     
                     echo -e "2. 拉取最新镜像..."
-                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD pull"
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD pull"
                     
                     echo -e "3. 重启容器..."
-                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD up -d"
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD up -d"
                     
                     echo ""
                     echo -e "${YELLOW}=== 升级后的容器状态 ===${NC}"
-                    pct exec "$id" -- bash -c "cd $compose_dir && $COMPOSE_CMD ps"
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD ps"
                     
                     echo ""
                     echo -e "${GREEN}镜像升级完成！${NC}"
