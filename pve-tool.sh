@@ -1282,11 +1282,29 @@ docker_container_rm() {
     local lxc_id=$1
     echo -ne "请输入容器名称: "; read container_name
     if [[ -n "$container_name" ]]; then
+        # 获取容器使用的镜像
+        local container_image=$(pct exec "$lxc_id" -- docker inspect "$container_name" --format='{{.Config.Image}}' 2>/dev/null || echo "")
+        
         echo -e "${RED}警告: 将删除容器 $container_name${NC}"
-        echo -ne "确认删除? (y/N): "; read confirm
+        if [[ -n "$container_image" ]]; then
+            echo -e "${YELLOW}容器使用的镜像: $container_image${NC}"
+        fi
+        echo -ne "确认删除容器? (y/N): "; read confirm
         if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
             if pct exec "$lxc_id" -- docker rm -f "$container_name" 2>/dev/null; then
                 echo -e "${GREEN}容器 $container_name 已删除${NC}"
+                
+                # 询问是否删除镜像
+                if [[ -n "$container_image" ]]; then
+                    echo -ne "${CYAN}是否同时删除镜像 $container_image? (y/N): ${NC}"; read rm_image
+                    if [[ "$rm_image" == "y" || "$rm_image" == "Y" ]]; then
+                        if pct exec "$lxc_id" -- docker rmi "$container_image" 2>/dev/null; then
+                            echo -e "${GREEN}镜像 $container_image 已删除${NC}"
+                        else
+                            echo -e "${YELLOW}镜像删除失败（可能被其他容器使用）${NC}"
+                        fi
+                    fi
+                fi
             else
                 echo -e "${RED}删除失败${NC}"
             fi
@@ -1516,7 +1534,11 @@ docker_run_deploy() {
     
     echo ""
     echo "=== 容器配置 ==="
-    echo -ne "容器名称 (留空自动生成): "; read container_name
+    # 自动从镜像名提取容器名（去除仓库路径和标签）
+    local auto_name=$(echo "$IMAGE" | sed 's|.*/||' | sed 's|:.*||')
+    echo -e "${CYAN}容器名称将使用镜像名: ${GREEN}$auto_name${NC}"
+    echo -ne "自定义容器名称 (回车使用镜像名): "; read container_name
+    container_name=${container_name:-$auto_name}
     echo -ne "端口映射 (格式: 8080:80, 多个用逗号分隔): "; read ports
     echo -ne "环境变量 (格式: MYSQL_ROOT_PASSWORD=123456, 多个用逗号分隔): "; read envs
     echo -ne "卷挂载 (格式: /host/path:/container/path, 多个用逗号分隔): "; read volumes
@@ -1536,7 +1558,7 @@ docker_run_deploy() {
     echo ""
     echo "=== 确认配置 ==="
     echo -e "${YELLOW}镜像:${NC} $IMAGE"
-    echo -e "${YELLOW}容器名称:${NC} ${container_name:-自动生成}"
+    echo -e "${YELLOW}容器名称:${NC} $container_name"
     echo -e "${YELLOW}端口:${NC} ${ports:-无}"
     echo -e "${YELLOW}环境变量:${NC} ${envs:-无}"
     echo -e "${YELLOW}卷挂载:${NC} ${volumes:-无}"
@@ -1552,11 +1574,7 @@ docker_run_deploy() {
     echo ""
     echo "=== 部署容器 ==="
     
-    DOCKER_CMD="docker run -d --restart=$RESTART"
-    
-    if [[ -n "$container_name" ]]; then
-        DOCKER_CMD+=" --name $container_name"
-    fi
+    DOCKER_CMD="docker run -d --restart=$RESTART --name $container_name"
     
     if [[ -n "$ports" ]]; then
         IFS=',' read -ra PORT_ARRAY <<< "$ports"
@@ -1591,8 +1609,7 @@ docker_run_deploy() {
         echo ""
         echo -e "${GREEN}部署完成!${NC}"
         echo -e "查看容器状态: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-        CONTAINER_NAME=${container_name:-$(pct exec "$lxc_id" -- docker ps --format '{{.Names}}' | tail -1)}
-        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $CONTAINER_NAME${NC}"
+        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $container_name${NC}"
     else
         echo -e "${RED}部署失败${NC}"
     fi
@@ -1653,19 +1670,18 @@ docker_deploy_new() {
     
     echo ""
     echo "=== 第1步: 服务基础配置 ==="
-    echo -ne "服务名称 (用于容器名): "; read service_name
-    if [[ -z "$service_name" ]]; then
-        echo -e "${RED}错误: 请输入服务名称${NC}"
-        pause_func
-        return
-    fi
-    
     echo -ne "镜像 (如 nginx:latest, mysql:8, redis:alpine): "; read image
     if [[ -z "$image" ]]; then
         echo -e "${RED}错误: 请输入镜像${NC}"
         pause_func
         return
     fi
+    
+    # 自动从镜像名提取服务名称（去除仓库路径和标签）
+    local auto_service_name=$(echo "$image" | sed 's|.*/||' | sed 's|:.*||')
+    echo -e "${CYAN}服务名称将使用镜像名: ${GREEN}$auto_service_name${NC}"
+    echo -ne "自定义服务名称 (回车使用镜像名): "; read service_name
+    service_name=${service_name:-$auto_service_name}
     
     echo ""
     echo "=== 第2步: 端口映射 ==="
