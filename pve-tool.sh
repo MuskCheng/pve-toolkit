@@ -1048,7 +1048,9 @@ docker_menu() {
                 pct list
                 echo -ne "请输入要升级镜像的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    if ! pct exec "$id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null; then
+                    if ! pct exec "$id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null && \
+                       ! pct exec "$id" -- test -x /usr/bin/docker 2>/dev/null && \
+                       ! pct exec "$id" -- test -x /usr/local/bin/docker 2>/dev/null; then
                         echo -e "${RED}错误: 容器中未安装 Docker${NC}"
                         pause_func
                         continue
