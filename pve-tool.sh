@@ -1300,7 +1300,8 @@ docker_change_registry() {
     echo -e "  ${GREEN}[2]${NC} 轩辕镜像免费版"
     echo -e "  ${GREEN}[3]${NC} 耗子面板"
     echo -e "  ${GREEN}[4]${NC} 中科大镜像"
-    echo -e "  ${GREEN}[5]${NC} 自定义镜像源"
+    echo -e "  ${GREEN}[5]${NC} 阿里云镜像"
+    echo -e "  ${GREEN}[6]${NC} 自定义镜像源"
     echo -e "  ${GREEN}[0]${NC} 取消"
     echo -ne "${CYAN}选择: ${NC}"
     read registry_choice
@@ -1321,10 +1322,14 @@ docker_change_registry() {
             echo -e "${GREEN}已选择: 耗子面板${NC}"
             ;;
         4)
-            REGISTRY_MIRRORS="https://docker.mirrors.aliyun.com"
-            echo -e "${GREEN}已选择: 清华镜像${NC}"
+            REGISTRY_MIRRORS="https://docker.mirrors.ustc.edu.cn"
+            echo -e "${GREEN}已选择: 中科大镜像${NC}"
             ;;
         5)
+            REGISTRY_MIRRORS="https://docker.mirrors.aliyun.com"
+            echo -e "${GREEN}已选择: 阿里云镜像${NC}"
+            ;;
+        6)
             echo -ne "请输入镜像源地址: "; read REGISTRY_MIRRORS
             if [[ -z "$REGISTRY_MIRRORS" ]]; then
                 echo -e "${RED}错误: 请输入镜像源地址${NC}"
@@ -1762,9 +1767,9 @@ docker_deploy_template() {
     echo -e "  ${GREEN}[7]${NC} Nginx Proxy Manager (反向代理)"
     echo -e "  ${GREEN}[8]${NC} WordPress (博客)"
     echo -e "  ${GREEN}[9]${NC} Uptime Kuma (监控)"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -e "${YELLOW}💡 提示: 请先创建 LXC 容器，或使用已有容器${NC}"
-        echo -ne "${CYAN}选择: ${NC}"
+    echo -e "  ${GREEN}[0]${NC} 返回"
+    echo -e "${YELLOW}💡 提示: 请先创建 LXC 容器，或使用已有容器${NC}"
+    echo -ne "${CYAN}选择: ${NC}"
     read t
     echo
     
@@ -2179,7 +2184,7 @@ system_menu() {
                 fix_docker_source
                 ;;
             9)
-               屏蔽_subscription_notice
+               block_subscription_notice
                 ;;
             0) break ;;
         esac
@@ -2187,7 +2192,7 @@ system_menu() {
 }
 
 # 屏蔽订阅提示
-屏蔽_subscription_notice() {
+block_subscription_notice() {
     local js_file="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
     local backup_file="$js_file.bak"
     
@@ -2364,7 +2369,7 @@ fix_docker_source() {
     echo -e "${CYAN}[2]${NC} Docker 官方源 (国外)"
     echo -e "${CYAN}[3]${NC} 清华 Docker 源 (推荐国内)"
     echo -e "${CYAN}[4]${NC} 阿里云 Docker 源"
-    echo -e "${CYAN}[5]${NC} 清华 Docker 源"
+    echo -e "${CYAN}[5]${NC} 中科大 Docker 源"
     echo -e "${CYAN}[0]${NC} 返回"
     echo -ne "${CYAN}选择: ${NC}"
     read fix_choice
@@ -2412,12 +2417,12 @@ fix_docker_source() {
             pause_func
             ;;
         5)
-            echo -e "${YELLOW}添加清华 Docker 源...${NC}"
+            echo -e "${YELLOW}添加中科大 Docker 源...${NC}"
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
-            curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
-            echo -e "${GREEN}清华 Docker 源添加完成${NC}"
+            curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list
+            echo -e "${GREEN}中科大 Docker 源添加完成${NC}"
             apt update
             pause_func
             ;;
