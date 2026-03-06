@@ -1855,13 +1855,15 @@ docker_deploy_template() {
             COMPOSE_FILE="services:
   nginx:
     image: nginx:latest
-    container_name: nginx-web
+    container_name: nginx
     restart: always
     ports:
       - \"80:80\"
       - \"443:443\"
     volumes:
-      - nginx-data:/etc/nginx"
+      - /opt/docker-data/nginx/conf.d:/etc/nginx/conf.d
+      - /opt/docker-data/nginx/html:/usr/share/nginx/html
+      - /opt/docker-data/nginx/logs:/var/log/nginx"
             ;;
         mysql)
             echo -ne "设置 MySQL root 密码: "; read -s mysql_pwd
@@ -1869,14 +1871,14 @@ docker_deploy_template() {
             COMPOSE_FILE="services:
   mysql:
     image: mysql:8
-    container_name: mysql-db
+    container_name: mysql
     restart: always
     ports:
       - \"3306:3306\"
     environment:
       - MYSQL_ROOT_PASSWORD=$mysql_pwd
     volumes:
-      - mysql-data:/var/lib/mysql"
+      - /opt/docker-data/mysql:/var/lib/mysql"
             ;;
         postgresql)
             echo -ne "设置 PostgreSQL 密码: "; read -s pg_pwd
@@ -1884,25 +1886,25 @@ docker_deploy_template() {
             COMPOSE_FILE="services:
   postgresql:
     image: postgres:16
-    container_name: postgresql-db
+    container_name: postgresql
     restart: always
     ports:
       - \"5432:5432\"
     environment:
       - POSTGRES_PASSWORD=$pg_pwd
     volumes:
-      - postgresql-data:/var/lib/postgresql/data"
+      - /opt/docker-data/postgresql:/var/lib/postgresql/data"
             ;;
         redis)
             COMPOSE_FILE="services:
   redis:
     image: redis:alpine
-    container_name: redis-cache
+    container_name: redis
     restart: always
     ports:
       - \"6379:6379\"
     volumes:
-      - redis-data:/data"
+      - /opt/docker-data/redis:/data"
             ;;
         mongodb)
             echo -ne "设置 MongoDB 用户名: "; read mongo_user
@@ -1919,7 +1921,7 @@ docker_deploy_template() {
       - MONGO_INITDB_ROOT_USERNAME=$mongo_user
       - MONGO_INITDB_ROOT_PASSWORD=$mongo_pwd
     volumes:
-      - mongodb-data:/data/db"
+      - /opt/docker-data/mongodb:/data/db"
             ;;
         portainer)
             COMPOSE_FILE="services:
@@ -1931,23 +1933,21 @@ docker_deploy_template() {
       - \"9000:9000\"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - portainer-data:/data"
+      - /opt/docker-data/portainer:/data"
             ;;
         npm)
             COMPOSE_FILE="services:
   npm:
     image: jc21/nginx-proxy-manager:latest
-    container_name: npm
+    container_name: nginx-proxy-manager
     restart: always
     ports:
       - \"80:80\"
       - \"443:443\"
       - \"81:81\"
     volumes:
-      - npm-data:/data
-      - npm-letsencrypt:/etc/letsencrypt
-    environment:
-      - DB_SQLITE_FILE=/data/database.db"
+      - /opt/docker-data/nginx-proxy-manager/data:/data
+      - /opt/docker-data/nginx-proxy-manager/letsencrypt:/etc/letsencrypt"
             ;;
         wordpress)
             echo -ne "设置 WordPress 数据库密码: "; read -s wp_db_pwd
@@ -1965,7 +1965,7 @@ docker_deploy_template() {
       - WORDPRESS_DB_PASSWORD=$wp_db_pwd
       - WORDPRESS_DB_NAME=wordpress
     volumes:
-      - wordpress-data:/var/www/html
+      - /opt/docker-data/wordpress/html:/var/www/html
   db:
     image: mysql:8
     container_name: wordpress-db
@@ -1976,7 +1976,7 @@ docker_deploy_template() {
       - MYSQL_USER=wordpress
       - MYSQL_PASSWORD=$wp_db_pwd
     volumes:
-      - mysql-wordpress-data:/var/lib/mysql"
+      - /opt/docker-data/wordpress/mysql:/var/lib/mysql"
             ;;
         uptimekuma)
             COMPOSE_FILE="services:
@@ -1987,7 +1987,7 @@ docker_deploy_template() {
     ports:
       - \"3001:3001\"
     volumes:
-      - uptimekuma-data:/app/data"
+      - /opt/docker-data/uptime-kuma:/app/data"
             ;;
     esac
     
@@ -2016,6 +2016,41 @@ docker_deploy_template() {
         echo ""
         echo -e "${GREEN}部署完成!${NC}"
         echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
+        echo ""
+        echo -e "${YELLOW}数据目录:${NC}"
+        case "$TEMPLATE" in
+            nginx)
+                echo -e "  配置文件: ${CYAN}/opt/docker-data/nginx/conf.d${NC}"
+                echo -e "  网站目录: ${CYAN}/opt/docker-data/nginx/html${NC}"
+                echo -e "  日志目录: ${CYAN}/opt/docker-data/nginx/logs${NC}"
+                ;;
+            mysql)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/mysql${NC}"
+                ;;
+            postgresql)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/postgresql${NC}"
+                ;;
+            redis)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/redis${NC}"
+                ;;
+            mongodb)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/mongodb${NC}"
+                ;;
+            portainer)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/portainer${NC}"
+                ;;
+            npm)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/nginx-proxy-manager/data${NC}"
+                echo -e "  证书目录: ${CYAN}/opt/docker-data/nginx-proxy-manager/letsencrypt${NC}"
+                ;;
+            wordpress)
+                echo -e "  网站目录: ${CYAN}/opt/docker-data/wordpress/html${NC}"
+                echo -e "  数据库目录: ${CYAN}/opt/docker-data/wordpress/mysql${NC}"
+                ;;
+            uptimekuma)
+                echo -e "  数据目录: ${CYAN}/opt/docker-data/uptime-kuma${NC}"
+                ;;
+        esac
     else
         echo ""
         echo -e "${RED}部署失败，请检查配置是否正确${NC}"
