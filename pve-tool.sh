@@ -1056,10 +1056,46 @@ docker_menu() {
                         continue
                     fi
                     
+                    # 搜索容器中的 docker-compose.yml 文件
                     echo ""
-                    echo -e "${YELLOW}请输入 docker-compose.yml 所在目录:${NC}"
-                    echo -e "${CYAN}示例: /opt/wordpress 或 /opt/nginx${NC}"
-                    echo -ne "目录路径: "; read compose_dir
+                    echo -e "${YELLOW}正在搜索容器中的 docker-compose.yml 文件...${NC}"
+                    
+                    local COMPOSE_DIRS COMPOSE_DIR_ARRAY dir_num dir_choice compose_dir
+                    COMPOSE_DIRS=$(pct exec "$id" -- bash -c "find / -name 'docker-compose.yml' -type f 2>/dev/null | xargs -I{} dirname {} | sort -u" 2>/dev/null)
+                    
+                    COMPOSE_DIR_ARRAY=()
+                    if [[ -n "$COMPOSE_DIRS" ]]; then
+                        echo ""
+                        echo -e "${GREEN}发现以下目录包含 docker-compose.yml:${NC}"
+                        echo -e "${BLUE}──────────────────────────────────${NC}"
+                        
+                        dir_num=1
+                        while IFS= read -r dir; do
+                            if [[ -n "$dir" ]]; then
+                                COMPOSE_DIR_ARRAY+=("$dir")
+                                echo -e "  ${GREEN}[$dir_num]${NC} $dir"
+                                ((dir_num++))
+                            fi
+                        done <<< "$COMPOSE_DIRS"
+                        
+                        echo -e "${BLUE}──────────────────────────────────${NC}"
+                        echo -e "  ${GREEN}[0]${NC} 手动输入目录路径"
+                        echo ""
+                        echo -ne "${CYAN}请选择 [1-$((dir_num-1))]: ${NC}"
+                        read dir_choice
+                        
+                        if [[ "$dir_choice" =~ ^[0-9]+$ ]] && [[ "$dir_choice" -ge 1 ]] && [[ "$dir_choice" -le $((dir_num-1)) ]]; then
+                            compose_dir="${COMPOSE_DIR_ARRAY[$((dir_choice-1))]}"
+                            echo -e "${GREEN}已选择: $compose_dir${NC}"
+                        else
+                            echo -ne "${CYAN}请输入目录路径: ${NC}"
+                            read compose_dir
+                        fi
+                    else
+                        echo -e "${YELLOW}未找到 docker-compose.yml 文件${NC}"
+                        echo -e "${CYAN}示例: /opt/wordpress 或 /opt/nginx${NC}"
+                        echo -ne "请输入目录路径: "; read compose_dir
+                    fi
                     
                     if [[ -z "$compose_dir" ]]; then
                         echo -e "${RED}错误: 请输入目录路径${NC}"
