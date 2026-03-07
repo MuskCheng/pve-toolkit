@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.6.4"
+    VERSION="V0.6.5"
 fi
 
 # 查询 GitHub 最新版本
@@ -1109,9 +1109,6 @@ docker_menu() {
                         continue
                     fi
                     
-                    echo ""
-                    echo -e "${YELLOW}=== 升级流程 ===${NC}"
-                    
                     COMPOSE_CMD=$(get_compose_cmd "$id")
                     if [[ -z "$COMPOSE_CMD" ]]; then
                         echo -e "${RED}Docker Compose 未安装${NC}"
@@ -1119,41 +1116,59 @@ docker_menu() {
                         continue
                     fi
                     
-                    # 获取当前使用的镜像列表
-                    local OLD_IMAGES
-                    OLD_IMAGES=$(pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD config --images" 2>/dev/null)
+                    echo ""
+                    echo -e "${YELLOW}=== Docker Compose 镜像升级 ===${NC}"
+                    echo -e "${CYAN}目录: $compose_dir${NC}"
+                    echo ""
                     
-                    echo -e "1. 停止并删除容器..."
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD down"
+                    # 显示当前容器状态
+                    echo -e "${YELLOW}当前容器状态:${NC}"
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD ps" 2>/dev/null || true
+                    echo ""
                     
-                    echo -e "2. 删除旧镜像..."
-                    if [[ -n "$OLD_IMAGES" ]]; then
-                        echo -e "${CYAN}正在删除以下镜像:${NC}"
-                        echo "$OLD_IMAGES" | while read -r img; do
-                            if [[ -n "$img" ]]; then
-                                echo -e "  - $img"
-                                pct exec "$id" -- docker rmi -f "$img" 2>/dev/null || true
-                            fi
-                        done
+                    # 获取使用的镜像列表
+                    echo -e "${YELLOW}使用的镜像:${NC}"
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD config --images" 2>/dev/null | while read -r img; do
+                        [[ -n "$img" ]] && echo -e "  - $img"
+                    done
+                    echo ""
+                    
+                    echo -e "${BLUE}════════ 升级流程 ════════${NC}"
+                    
+                    # Step 1: 拉取最新镜像
+                    echo -e "${YELLOW}[1/3] 拉取最新镜像...${NC}"
+                    if pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD pull"; then
+                        echo -e "${GREEN}镜像拉取完成${NC}"
+                    else
+                        echo -e "${RED}镜像拉取失败，请检查网络或镜像源配置${NC}"
+                        pause_func
+                        continue
                     fi
+                    echo ""
                     
-                    # 清理悬空镜像
-                    echo -e "${CYAN}清理悬空镜像...${NC}"
+                    # Step 2: 重建容器 (up -d 会自动检测镜像变化并重建需要的容器)
+                    echo -e "${YELLOW}[2/3] 重建容器...${NC}"
+                    if pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD up -d"; then
+                        echo -e "${GREEN}容器重建完成${NC}"
+                    else
+                        echo -e "${RED}容器重建失败${NC}"
+                        pause_func
+                        continue
+                    fi
+                    echo ""
+                    
+                    # Step 3: 清理旧镜像
+                    echo -e "${YELLOW}[3/3] 清理旧镜像...${NC}"
                     pct exec "$id" -- docker image prune -f 2>/dev/null || true
-                    
-                    echo -e "3. 拉取最新镜像..."
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD pull"
-                    
-                    echo -e "4. 启动容器..."
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD up -d"
-                    
+                    echo -e "${GREEN}清理完成${NC}"
                     echo ""
-                    echo -e "${YELLOW}=== 升级后的容器状态 ===${NC}"
+                    
+                    # 显示升级后状态
+                    echo -e "${BLUE}════════ 升级后状态 ════════${NC}"
                     pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD ps"
-                    
                     echo ""
-                    echo -e "${GREEN}镜像升级完成！${NC}"
-                    echo -e "${YELLOW}注意: volumes 数据和配置文件不会丢失${NC}"
+                    echo -e "${GREEN}✓ 镜像升级完成！${NC}"
+                    echo -e "${CYAN}提示: volumes 数据和配置文件已保留${NC}"
                 fi
                 pause_func
                 ;;
