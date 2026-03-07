@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.6.3"
+    VERSION="V0.6.4"
 fi
 
 # 查询 GitHub 最新版本
@@ -1119,36 +1119,32 @@ docker_menu() {
                         continue
                     fi
                     
-                    echo -e "1. 停止容器..."
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD stop"
-                    
-                    echo -e "2. 获取并删除旧镜像..."
+                    # 获取当前使用的镜像列表
                     local OLD_IMAGES
                     OLD_IMAGES=$(pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD config --images" 2>/dev/null)
                     
+                    echo -e "1. 停止并删除容器..."
+                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD down"
+                    
+                    echo -e "2. 删除旧镜像..."
                     if [[ -n "$OLD_IMAGES" ]]; then
-                        echo -e "${CYAN}当前使用的镜像:${NC}"
+                        echo -e "${CYAN}正在删除以下镜像:${NC}"
                         echo "$OLD_IMAGES" | while read -r img; do
-                            [[ -n "$img" ]] && echo -e "  - $img"
+                            if [[ -n "$img" ]]; then
+                                echo -e "  - $img"
+                                pct exec "$id" -- docker rmi -f "$img" 2>/dev/null || true
+                            fi
                         done
-                        echo ""
-                        echo -e "${YELLOW}正在删除旧镜像...${NC}"
-                        
-                        # 删除 compose 项目相关的镜像
-                        pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD down --rmi local" 2>/dev/null || true
-                        
-                        # 清理悬空镜像
-                        echo -e "${CYAN}清理悬空镜像...${NC}"
-                        pct exec "$id" -- docker image prune -f 2>/dev/null || true
-                    else
-                        echo -e "${YELLOW}未能获取镜像信息，尝试清理悬空镜像...${NC}"
-                        pct exec "$id" -- docker image prune -f 2>/dev/null || true
                     fi
+                    
+                    # 清理悬空镜像
+                    echo -e "${CYAN}清理悬空镜像...${NC}"
+                    pct exec "$id" -- docker image prune -f 2>/dev/null || true
                     
                     echo -e "3. 拉取最新镜像..."
                     pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD pull"
                     
-                    echo -e "4. 重启容器..."
+                    echo -e "4. 启动容器..."
                     pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD up -d"
                     
                     echo ""
