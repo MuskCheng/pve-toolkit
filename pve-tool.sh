@@ -1087,7 +1087,7 @@ EOF"
     
     echo ""
     echo -e "${YELLOW}选择 DPanel 版本:${NC}"
-    echo -e "  ${GREEN}[1]${NC} Lite 版 (推荐，端口 8800)"
+    echo -e "  ${GREEN}[1]${NC} Lite 版 (推荐，端口 8807)"
     echo -e "  ${GREEN}[2]${NC} 标准版 (需要 80/443 端口)"
     echo -ne "${CYAN}选择 [1]: ${NC}"
     read dpanel_ver
@@ -1101,9 +1101,10 @@ EOF"
             pct exec "$lxc_id" -- docker run -d \
                 --name dpanel \
                 --restart=always \
-                -p 8800:80 \
+                -p 8807:8080 \
+                -e APP_NAME=dpanel \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v dpanel-data:/app \
+                -v dpanel:/dpanel \
                 dpanel/dpanel:lite
             ;;
         2)
@@ -1111,9 +1112,10 @@ EOF"
             pct exec "$lxc_id" -- docker run -d \
                 --name dpanel \
                 --restart=always \
-                -p 80:80 -p 443:443 -p 8800:80 \
+                -p 80:80 -p 443:443 -p 8807:8080 \
+                -e APP_NAME=dpanel \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v dpanel-data:/app \
+                -v dpanel:/dpanel \
                 dpanel/dpanel:latest
             ;;
         *)
@@ -1129,9 +1131,9 @@ EOF"
         echo ""
         echo -e "${GREEN}访问地址:${NC}"
         if [[ -n "$container_ip" ]]; then
-            echo -e "  ${CYAN}http://${container_ip}:8800${NC}"
+            echo -e "  ${CYAN}http://${container_ip}:8807${NC}"
         else
-            echo -e "  ${CYAN}http://<容器IP>:8800${NC}"
+            echo -e "  ${CYAN}http://<容器IP>:8807${NC}"
         fi
         echo ""
         echo -e "${YELLOW}默认账号: admin / admin${NC}"
