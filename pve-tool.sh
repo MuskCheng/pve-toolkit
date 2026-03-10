@@ -1082,21 +1082,59 @@ EOF"
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
     
     echo ""
-    echo -e "${GREEN}Docker 环境已准备就绪！${NC}"
+    echo -e "${YELLOW}选择 DPanel 版本:${NC}"
+    echo -e "  ${GREEN}[1]${NC} Lite 版 (推荐，端口 8800)"
+    echo -e "  ${GREEN}[2]${NC} 标准版 (需要 80/443 端口)"
+    echo -ne "${CYAN}选择 [1]: ${NC}"
+    read dpanel_ver
+    dpanel_ver=${dpanel_ver:-1}
+    
     echo ""
-    echo -e "${YELLOW}请执行以下命令进入容器并安装 DPanel:${NC}"
-    echo ""
-    echo -e "  ${CYAN}pct enter $lxc_id${NC}"
-    echo -e "  ${CYAN}curl -sSL https://dpanel.cc/quick.sh | bash${NC}"
-    echo ""
-    echo -e "${YELLOW}安装完成后访问:${NC}"
-    if [[ -n "$container_ip" ]]; then
-        echo -e "  ${GREEN}http://${container_ip}:80 或 http://${container_ip}:8800${NC}"
+    
+    case "$dpanel_ver" in
+        1)
+            echo -e "${YELLOW}正在安装 DPanel Lite 版...${NC}"
+            pct exec "$lxc_id" -- docker run -d \
+                --name dpanel \
+                --restart=always \
+                -p 8800:80 \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v dpanel-data:/app \
+                dpanel/dpanel:lite
+            ;;
+        2)
+            echo -e "${YELLOW}正在安装 DPanel 标准版...${NC}"
+            pct exec "$lxc_id" -- docker run -d \
+                --name dpanel \
+                --restart=always \
+                -p 80:80 -p 443:443 -p 8800:80 \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v dpanel-data:/app \
+                dpanel/dpanel:latest
+            ;;
+        *)
+            echo -e "${RED}无效选择${NC}"
+            pause_func
+            return
+            ;;
+    esac
+    
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+        echo ""
+        echo -e "${GREEN}访问地址:${NC}"
+        if [[ -n "$container_ip" ]]; then
+            echo -e "  ${CYAN}http://${container_ip}:8800${NC}"
+        else
+            echo -e "  ${CYAN}http://<容器IP>:8800${NC}"
+        fi
+        echo ""
+        echo -e "${YELLOW}默认账号: admin / admin${NC}"
+        echo -e "${YELLOW}首次登录请修改密码${NC}"
     else
-        echo -e "  ${GREEN}http://<容器IP>:80 或 http://<容器IP>:8800${NC}"
+        echo -e "${RED}安装失败${NC}"
     fi
-    echo ""
-    echo -e "${CYAN}提示: 安装脚本会交互式引导您完成配置${NC}"
     
     pause_func
 }
