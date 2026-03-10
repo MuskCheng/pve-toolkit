@@ -1044,18 +1044,22 @@ install_dpanel() {
         sleep 3
     fi
     
+    # 检查 Docker 环境
     echo ""
-    echo -e "${YELLOW}════════ 步骤 1/3: 安装 Docker 环境 ════════${NC}"
-    
-    # 使用已有的 Docker 安装函数（使用国内镜像源）
-    if ! check_and_install_docker "$lxc_id"; then
-        echo -e "${RED}Docker 安装失败，无法继续${NC}"
+    echo -e "${YELLOW}检查 Docker 环境...${NC}"
+    if ! pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null && \
+       ! pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
+        echo ""
+        echo -e "${RED}错误: 容器中未安装 Docker${NC}"
+        echo -e "${YELLOW}请先使用「安装 Docker」功能安装 Docker 环境${NC}"
         pause_func
         return
     fi
     
+    echo -e "${GREEN}Docker 环境已就绪${NC}"
+    
     echo ""
-    echo -e "${YELLOW}════════ 步骤 2/3: 配置镜像加速 ════════${NC}"
+    echo -e "${YELLOW}════════ 步骤 1/2: 配置镜像加速 ════════${NC}"
     
     # 配置 Docker 镜像加速
     local REGISTRY_MIRRORS="https://docker.1ms.run"
@@ -1076,7 +1080,7 @@ EOF"
     sleep 2
     
     echo ""
-    echo -e "${YELLOW}════════ 步骤 3/3: 安装 DPanel ════════${NC}"
+    echo -e "${YELLOW}════════ 步骤 2/2: 安装 DPanel ════════${NC}"
     
     # 获取容器 IP 用于显示
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
@@ -1144,8 +1148,8 @@ docker_menu() {
     while true; do
         clear
         echo -e "${BLUE}════════ Docker 管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 安装 DPanel 面板"
-        echo -e "  ${GREEN}[2]${NC} 安装 Docker (含 Docker Compose)"
+        echo -e "  ${GREEN}[1]${NC} 安装 Docker (含 Docker Compose)"
+        echo -e "  ${GREEN}[2]${NC} 安装 DPanel 面板"
         echo -e "  ${GREEN}[3]${NC} Docker 换源"
         echo -e "  ${GREEN}[4]${NC} Docker 容器管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
@@ -1155,15 +1159,15 @@ docker_menu() {
         
         case "$c" in
             1)
-                install_dpanel
-                ;;
-            2)
                 pct list
                 echo -ne "请输入要安装 Docker 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
                     check_and_install_docker "$id"
                 fi
                 pause_func
+                ;;
+            2)
+                install_dpanel
                 ;;
             3)
                 docker_change_registry
