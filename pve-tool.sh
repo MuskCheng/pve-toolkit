@@ -1045,16 +1045,38 @@ install_dpanel() {
     fi
     
     echo ""
-    echo -e "${YELLOW}检查并安装依赖...${NC}"
+    echo -e "${YELLOW}════════ 步骤 1/3: 安装 Docker 环境 ════════${NC}"
     
-    # 安装 curl
-    if ! pct exec "$lxc_id" -- bash -lc 'command -v curl &>/dev/null' 2>/dev/null; then
-        echo -e "${YELLOW}正在安装 curl...${NC}"
-        pct exec "$lxc_id" -- bash -c 'apt update -qq && apt install -y -qq curl' 2>&1 | tail -5
+    # 使用已有的 Docker 安装函数（使用国内镜像源）
+    if ! check_and_install_docker "$lxc_id"; then
+        echo -e "${RED}Docker 安装失败，无法继续${NC}"
+        pause_func
+        return
     fi
     
     echo ""
-    echo -e "${YELLOW}开始安装 DPanel...${NC}"
+    echo -e "${YELLOW}════════ 步骤 2/3: 配置镜像加速 ════════${NC}"
+    
+    # 配置 Docker 镜像加速
+    local REGISTRY_MIRRORS="https://docker.1ms.run"
+    echo -e "${CYAN}使用镜像源: ${GREEN}$REGISTRY_MIRRORS${NC}"
+    
+    pct exec "$lxc_id" -- bash -c "mkdir -p /etc/docker"
+    pct exec "$lxc_id" -- bash -c "cat > /etc/docker/daemon.json << 'EOF'
+{
+  \"registry-mirrors\": [\"$REGISTRY_MIRRORS\"]
+}
+EOF"
+    
+    # 重启 Docker 服务使配置生效
+    echo -e "${YELLOW}重启 Docker 服务...${NC}"
+    pct exec "$lxc_id" -- bash -c 'systemctl daemon-reload && systemctl restart docker' 2>/dev/null || \
+    pct exec "$lxc_id" -- bash -c 'service docker restart' 2>/dev/null || true
+    
+    sleep 2
+    
+    echo ""
+    echo -e "${YELLOW}════════ 步骤 3/3: 安装 DPanel ════════${NC}"
     echo -e "${CYAN}官方安装脚本将引导您完成配置${NC}"
     echo ""
     
@@ -1068,7 +1090,7 @@ install_dpanel() {
         # 获取容器 IP
         local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
         
-        # 获取 DPanel 端口（默认 80 和 443，或从容器配置获取）
+        # 获取 DPanel 端口
         local port_80=$(pct exec "$lxc_id" -- docker port dpanel 80 2>/dev/null | cut -d: -f2 | head -1)
         local port_443=$(pct exec "$lxc_id" -- docker port dpanel 443 2>/dev/null | cut -d: -f2 | head -1)
         local port_8800=$(pct exec "$lxc_id" -- docker port dpanel 8800 2>/dev/null | cut -d: -f2 | head -1)
