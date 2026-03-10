@@ -1077,42 +1077,26 @@ EOF"
     
     echo ""
     echo -e "${YELLOW}════════ 步骤 3/3: 安装 DPanel ════════${NC}"
-    echo -e "${CYAN}官方安装脚本将引导您完成配置${NC}"
+    
+    # 获取容器 IP 用于显示
+    local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
+    
     echo ""
-    
-    # 执行官方安装脚本
-    pct exec "$lxc_id" -- bash -c 'curl -sSL https://dpanel.cc/quick.sh | bash'
-    
-    if [[ $? -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
-        
-        # 获取容器 IP
-        local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
-        
-        # 获取 DPanel 端口
-        local port_80=$(pct exec "$lxc_id" -- docker port dpanel 80 2>/dev/null | cut -d: -f2 | head -1)
-        local port_443=$(pct exec "$lxc_id" -- docker port dpanel 443 2>/dev/null | cut -d: -f2 | head -1)
-        local port_8800=$(pct exec "$lxc_id" -- docker port dpanel 8800 2>/dev/null | cut -d: -f2 | head -1)
-        
-        if [[ -n "$container_ip" ]]; then
-            echo ""
-            echo -e "${GREEN}访问地址:${NC}"
-            if [[ -n "$port_80" ]]; then
-                echo -e "  ${CYAN}http://${container_ip}:${port_80}${NC}"
-            fi
-            if [[ -n "$port_8800" ]]; then
-                echo -e "  ${CYAN}http://${container_ip}:${port_8800}${NC}"
-            fi
-            if [[ -n "$port_443" ]]; then
-                echo -e "  ${CYAN}https://${container_ip}:${port_443}${NC}"
-            fi
-            echo ""
-            echo -e "${YELLOW}提示: 默认端口请参考安装过程中的配置${NC}"
-        fi
+    echo -e "${GREEN}Docker 环境已准备就绪！${NC}"
+    echo ""
+    echo -e "${YELLOW}请执行以下命令进入容器并安装 DPanel:${NC}"
+    echo ""
+    echo -e "  ${CYAN}pct enter $lxc_id${NC}"
+    echo -e "  ${CYAN}curl -sSL https://dpanel.cc/quick.sh | bash${NC}"
+    echo ""
+    echo -e "${YELLOW}安装完成后访问:${NC}"
+    if [[ -n "$container_ip" ]]; then
+        echo -e "  ${GREEN}http://${container_ip}:80 或 http://${container_ip}:8800${NC}"
     else
-        echo -e "${RED}安装失败，请检查网络连接或手动安装${NC}"
+        echo -e "  ${GREEN}http://<容器IP>:80 或 http://<容器IP>:8800${NC}"
     fi
+    echo ""
+    echo -e "${CYAN}提示: 安装脚本会交互式引导您完成配置${NC}"
     
     pause_func
 }
