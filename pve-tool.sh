@@ -1013,17 +1013,97 @@ check_and_install_docker() {
     return 0
 }
 
+# 安装 DPanel 面板
+install_dpanel() {
+    clear
+    echo -e "${BLUE}════════ DPanel 面板安装 ════════${NC}"
+    echo -e "${YELLOW}DPanel - Docker 可视化管理面板${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    # 检查容器是否存在
+    if ! pct status "$lxc_id" &>/dev/null; then
+        echo -e "${RED}错误: 容器 $lxc_id 不存在${NC}"
+        pause_func
+        return
+    fi
+    
+    # 检查容器是否运行
+    if ! pct status "$lxc_id" | grep -q "running"; then
+        echo -e "${YELLOW}容器未运行，正在启动...${NC}"
+        pct start "$lxc_id"
+        sleep 3
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}检查并安装依赖...${NC}"
+    
+    # 安装 curl
+    if ! pct exec "$lxc_id" -- bash -lc 'command -v curl &>/dev/null' 2>/dev/null; then
+        echo -e "${YELLOW}正在安装 curl...${NC}"
+        pct exec "$lxc_id" -- bash -c 'apt update -qq && apt install -y -qq curl' 2>&1 | tail -5
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}开始安装 DPanel...${NC}"
+    echo -e "${CYAN}官方安装脚本将引导您完成配置${NC}"
+    echo ""
+    
+    # 执行官方安装脚本
+    pct exec "$lxc_id" -- bash -c 'curl -sSL https://dpanel.cc/quick.sh | bash'
+    
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+        
+        # 获取容器 IP
+        local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
+        
+        # 获取 DPanel 端口（默认 80 和 443，或从容器配置获取）
+        local port_80=$(pct exec "$lxc_id" -- docker port dpanel 80 2>/dev/null | cut -d: -f2 | head -1)
+        local port_443=$(pct exec "$lxc_id" -- docker port dpanel 443 2>/dev/null | cut -d: -f2 | head -1)
+        local port_8800=$(pct exec "$lxc_id" -- docker port dpanel 8800 2>/dev/null | cut -d: -f2 | head -1)
+        
+        if [[ -n "$container_ip" ]]; then
+            echo ""
+            echo -e "${GREEN}访问地址:${NC}"
+            if [[ -n "$port_80" ]]; then
+                echo -e "  ${CYAN}http://${container_ip}:${port_80}${NC}"
+            fi
+            if [[ -n "$port_8800" ]]; then
+                echo -e "  ${CYAN}http://${container_ip}:${port_8800}${NC}"
+            fi
+            if [[ -n "$port_443" ]]; then
+                echo -e "  ${CYAN}https://${container_ip}:${port_443}${NC}"
+            fi
+            echo ""
+            echo -e "${YELLOW}提示: 默认端口请参考安装过程中的配置${NC}"
+        fi
+    else
+        echo -e "${RED}安装失败，请检查网络连接或手动安装${NC}"
+    fi
+    
+    pause_func
+}
+
 # Docker 管理
 docker_menu() {
     while true; do
         clear
         echo -e "${BLUE}════════ Docker 管理 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 安装 Docker (含 Docker Compose)"
-        echo -e "  ${GREEN}[2]${NC} Docker 部署向导"
-        echo -e "  ${GREEN}[3]${NC} Docker Compose 部署向导"
-        echo -e "  ${GREEN}[4]${NC} 一键升级镜像"
-        echo -e "  ${GREEN}[5]${NC} Docker 换源"
-        echo -e "  ${GREEN}[6]${NC} Docker 容器管理"
+        echo -e "  ${GREEN}[1]${NC} 安装 DPanel 面板"
+        echo -e "  ${GREEN}[2]${NC} 安装 Docker (含 Docker Compose)"
+        echo -e "  ${GREEN}[3]${NC} Docker 换源"
+        echo -e "  ${GREEN}[4]${NC} Docker 容器管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -1031,6 +1111,9 @@ docker_menu() {
         
         case "$c" in
             1)
+                install_dpanel
+                ;;
+            2)
                 pct list
                 echo -ne "请输入要安装 Docker 的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
@@ -1038,144 +1121,10 @@ docker_menu() {
                 fi
                 pause_func
                 ;;
-            2)
-                docker_run_deploy
-                ;;
             3)
-                docker_deploy_menu
-                ;;
-            4)
-                pct list
-                echo -ne "请输入要升级镜像的容器 ID: "; read id
-                if [[ -n "$id" ]]; then
-                    if ! pct exec "$id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null && \
-                       ! pct exec "$id" -- test -x /usr/bin/docker 2>/dev/null && \
-                       ! pct exec "$id" -- test -x /usr/local/bin/docker 2>/dev/null; then
-                        echo -e "${RED}错误: 容器中未安装 Docker${NC}"
-                        pause_func
-                        continue
-                    fi
-                    
-                    # 搜索容器中的 docker-compose.yml 文件
-                    echo ""
-                    echo -e "${YELLOW}正在搜索容器中的 docker-compose.yml 文件...${NC}"
-                    
-                    local COMPOSE_DIRS COMPOSE_DIR_ARRAY dir_num dir_choice compose_dir
-                    COMPOSE_DIRS=$(pct exec "$id" -- bash -c "find / -name 'docker-compose.yml' -type f 2>/dev/null | xargs -I{} dirname {} | sort -u" 2>/dev/null)
-                    
-                    COMPOSE_DIR_ARRAY=()
-                    if [[ -n "$COMPOSE_DIRS" ]]; then
-                        echo ""
-                        echo -e "${GREEN}发现以下目录包含 docker-compose.yml:${NC}"
-                        echo -e "${BLUE}──────────────────────────────────${NC}"
-                        
-                        dir_num=1
-                        while IFS= read -r dir; do
-                            if [[ -n "$dir" ]]; then
-                                COMPOSE_DIR_ARRAY+=("$dir")
-                                echo -e "  ${GREEN}[$dir_num]${NC} $dir"
-                                ((dir_num++))
-                            fi
-                        done <<< "$COMPOSE_DIRS"
-                        
-                        echo -e "${BLUE}──────────────────────────────────${NC}"
-                        echo -e "  ${GREEN}[0]${NC} 手动输入目录路径"
-                        echo ""
-                        echo -ne "${CYAN}请选择 [1-$((dir_num-1))]: ${NC}"
-                        read dir_choice
-                        
-                        if [[ "$dir_choice" =~ ^[0-9]+$ ]] && [[ "$dir_choice" -ge 1 ]] && [[ "$dir_choice" -le $((dir_num-1)) ]]; then
-                            compose_dir="${COMPOSE_DIR_ARRAY[$((dir_choice-1))]}"
-                            echo -e "${GREEN}已选择: $compose_dir${NC}"
-                        else
-                            echo -ne "${CYAN}请输入目录路径: ${NC}"
-                            read compose_dir
-                        fi
-                    else
-                        echo -e "${YELLOW}未找到 docker-compose.yml 文件${NC}"
-                        echo -e "${CYAN}示例: /opt/wordpress 或 /opt/nginx${NC}"
-                        echo -ne "请输入目录路径: "; read compose_dir
-                    fi
-                    
-                    if [[ -z "$compose_dir" ]]; then
-                        echo -e "${RED}错误: 请输入目录路径${NC}"
-                        pause_func
-                        continue
-                    fi
-                    
-                    if ! pct exec "$id" -- test -f "$compose_dir/docker-compose.yml"; then
-                        echo -e "${RED}错误: $compose_dir/docker-compose.yml 不存在${NC}"
-                        pause_func
-                        continue
-                    fi
-                    
-                    COMPOSE_CMD=$(get_compose_cmd "$id")
-                    if [[ -z "$COMPOSE_CMD" ]]; then
-                        echo -e "${RED}Docker Compose 未安装${NC}"
-                        pause_func
-                        continue
-                    fi
-                    
-                    echo ""
-                    echo -e "${YELLOW}=== Docker Compose 镜像升级 ===${NC}"
-                    echo -e "${CYAN}目录: $compose_dir${NC}"
-                    echo ""
-                    
-                    # 显示当前容器状态
-                    echo -e "${YELLOW}当前容器状态:${NC}"
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD ps" 2>/dev/null || true
-                    echo ""
-                    
-                    # 获取使用的镜像列表
-                    echo -e "${YELLOW}使用的镜像:${NC}"
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD config --images" 2>/dev/null | while read -r img; do
-                        [[ -n "$img" ]] && echo -e "  - $img"
-                    done
-                    echo ""
-                    
-                    echo -e "${BLUE}════════ 升级流程 ════════${NC}"
-                    
-                    # Step 1: 拉取最新镜像
-                    echo -e "${YELLOW}[1/3] 拉取最新镜像...${NC}"
-                    if pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD pull"; then
-                        echo -e "${GREEN}镜像拉取完成${NC}"
-                    else
-                        echo -e "${RED}镜像拉取失败，请检查网络或镜像源配置${NC}"
-                        pause_func
-                        continue
-                    fi
-                    echo ""
-                    
-                    # Step 2: 重建容器 (up -d 会自动检测镜像变化并重建需要的容器)
-                    echo -e "${YELLOW}[2/3] 重建容器...${NC}"
-                    if pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD up -d"; then
-                        echo -e "${GREEN}容器重建完成${NC}"
-                    else
-                        echo -e "${RED}容器重建失败${NC}"
-                        pause_func
-                        continue
-                    fi
-                    echo ""
-                    
-                    # Step 3: 清理旧镜像
-                    echo -e "${YELLOW}[3/3] 清理旧镜像...${NC}"
-                    pct exec "$id" -- docker image prune -f 2>/dev/null || true
-                    echo -e "${GREEN}清理完成${NC}"
-                    echo ""
-                    
-                    # 显示升级后状态
-                    echo -e "${BLUE}════════ 升级后状态 ════════${NC}"
-                    pct exec "$id" -- bash -c "cd '$compose_dir' && $COMPOSE_CMD ps"
-                    echo ""
-                    echo -e "${GREEN}✓ 镜像升级完成！${NC}"
-                    echo -e "${CYAN}提示: volumes 数据和配置文件已保留${NC}"
-                fi
-                pause_func
-                ;;
-            5)
                 docker_change_registry
                 ;;
-            6)
+            4)
                 docker_container_menu
                 ;;
             0) break ;;
@@ -1490,699 +1439,6 @@ docker_change_registry() {
         echo -e "${GREEN}Docker 镜像源配置成功！${NC}"
     else
         echo -e "${YELLOW}测试拉取失败，请检查网络或尝试其他镜像源${NC}"
-    fi
-    
-    pause_func
-}
-
-# Docker 部署向导
-docker_run_deploy() {
-    clear
-    echo -e "${BLUE}════════ Docker 部署向导 ════════${NC}"
-    echo -e "${YELLOW}此向导将引导您使用 docker run 部署单个容器${NC}"
-    echo ""
-    
-    pct list
-    echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
-    
-    if [[ -z "$lxc_id" ]]; then
-        echo -e "${RED}错误: 请输入容器 ID${NC}"
-        pause_func
-        return
-    fi
-    
-    if ! pct status "$lxc_id" | grep -q "running"; then
-        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
-        pause_func
-        return
-    fi
-    
-    check_and_install_docker "$lxc_id"
-    
-    echo ""
-    echo "=== 选择镜像 ==="
-    echo "请选择要部署的镜像:"
-    echo ""
-    echo -e "  ${GREEN}[1]${NC} nginx        - Web 服务器"
-    echo -e "  ${GREEN}[2]${NC} mysql        - MySQL 数据库"
-    echo -e "  ${GREEN}[3]${NC} postgres     - PostgreSQL 数据库"
-    echo -e "  ${GREEN}[4]${NC} redis        - Redis 缓存"
-    echo -e "  ${GREEN}[5]${NC} mongo        - MongoDB 数据库"
-    echo -e "  ${GREEN}[6]${NC} mariadb      - MariaDB 数据库"
-    echo -e "  ${GREEN}[7]${NC} rabbitmq     - RabbitMQ 消息队列"
-    echo -e "  ${GREEN}[8]${NC} elasticsearch - Elasticsearch 搜索引擎"
-    echo -e "  ${GREEN}[9]${NC} portainer    - Portainer 容器管理"
-    echo -e "  ${GREEN}[10]${NC} jellyfin    - Jellyfin 媒体服务器"
-    echo -e "  ${GREEN}[11]${NC} nextcloud   - Nextcloud 云盘"
-    echo -e "  ${GREEN}[12]${NC} custom      - 自定义镜像"
-    echo -ne "${CYAN}选择: ${NC}"
-    read image_choice
-    
-    case "$image_choice" in
-        1) IMAGE="nginx:latest" ;;
-        2) IMAGE="mysql:8" ;;
-        3) IMAGE="postgres:16" ;;
-        4) IMAGE="redis:alpine" ;;
-        5) IMAGE="mongo:7" ;;
-        6) IMAGE="mariadb:10" ;;
-        7) IMAGE="rabbitmq:3-management" ;;
-        8) IMAGE="elasticsearch:8" ;;
-        9) IMAGE="portainer/portainer-ce:latest" ;;
-        10) IMAGE="jellyfin/jellyfin:latest" ;;
-        11) IMAGE="nextcloud:latest" ;;
-        12)
-            echo -ne "请输入自定义镜像 (如 nginx:latest): "; read IMAGE
-            if [[ -z "$IMAGE" ]]; then
-                echo -e "${RED}错误: 请输入镜像${NC}"
-                pause_func
-                return
-            fi
-            ;;
-        *)
-            echo -e "${RED}无效选择${NC}"
-            pause_func
-            return
-            ;;
-    esac
-    
-    echo ""
-    echo "=== 容器配置 ==="
-    # 自动从镜像名提取容器名（去除仓库路径和标签）
-    local auto_name=$(echo "$IMAGE" | sed 's|.*/||' | sed 's|:.*||')
-    echo -e "${CYAN}容器名称将使用镜像名: ${GREEN}$auto_name${NC}"
-    echo -ne "自定义容器名称 (回车使用镜像名): "; read container_name
-    container_name=${container_name:-$auto_name}
-    echo -ne "端口映射 (格式: 8080:80, 多个用逗号分隔): "; read ports
-    echo -ne "环境变量 (格式: MYSQL_ROOT_PASSWORD=123456, 多个用逗号分隔): "; read envs
-    echo -ne "卷挂载 (格式: /host/path:/container/path, 多个用逗号分隔): "; read volumes
-    echo -e "重启策略: "
-    echo -e "  ${GREEN}[1]${NC} always (推荐，容器自动重启)"
-    echo -e "  ${GREEN}[2]${NC} no (不重启)"
-    echo -e "  ${GREEN}[3]${NC} unless-stopped (除非手动停止)"
-    echo -ne "选择 [1]: "; read restart_choice
-    restart_choice=${restart_choice:-1}
-    case "$restart_choice" in
-        1) RESTART="always" ;;
-        2) RESTART="no" ;;
-        3) RESTART="unless-stopped" ;;
-        *) RESTART="always" ;;
-    esac
-    
-    echo ""
-    echo "=== 确认配置 ==="
-    echo -e "${YELLOW}镜像:${NC} $IMAGE"
-    echo -e "${YELLOW}容器名称:${NC} $container_name"
-    echo -e "${YELLOW}端口:${NC} ${ports:-无}"
-    echo -e "${YELLOW}环境变量:${NC} ${envs:-无}"
-    echo -e "${YELLOW}卷挂载:${NC} ${volumes:-无}"
-    echo -e "${YELLOW}重启策略:${NC} $RESTART"
-    echo ""
-    echo -ne "确认部署? (y/N): "; read confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo "已取消"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    echo "=== 部署容器 ==="
-    
-    DOCKER_CMD="docker run -d --restart=$RESTART --name $container_name"
-    
-    if [[ -n "$ports" ]]; then
-        IFS=',' read -ra PORT_ARRAY <<< "$ports"
-        for port in "${PORT_ARRAY[@]}"; do
-            port=$(echo "$port" | xargs)
-            DOCKER_CMD+=" -p $port"
-        done
-    fi
-    
-    if [[ -n "$envs" ]]; then
-        IFS=',' read -ra ENV_ARRAY <<< "$envs"
-        for env in "${ENV_ARRAY[@]}"; do
-            env=$(echo "$env" | xargs)
-            DOCKER_CMD+=" -e $env"
-        done
-    fi
-    
-    if [[ -n "$volumes" ]]; then
-        IFS=',' read -ra VOL_ARRAY <<< "$volumes"
-        for vol in "${VOL_ARRAY[@]}"; do
-            vol=$(echo "$vol" | xargs)
-            DOCKER_CMD+=" -v $vol"
-        done
-    fi
-    
-    DOCKER_CMD+=" $IMAGE"
-    
-    echo "执行命令: $DOCKER_CMD"
-    pct exec "$lxc_id" -- bash -c "$DOCKER_CMD"
-    
-    if [[ $? -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}部署完成!${NC}"
-        echo -e "查看容器状态: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $container_name${NC}"
-    else
-        echo -e "${RED}部署失败${NC}"
-    fi
-    
-    pause_func
-}
-
-# Docker Compose 部署向导
-docker_deploy_menu() {
-    while true; do
-        clear
-        echo -e "${BLUE}════════ Docker Compose 部署向导 ════════${NC}"
-        echo -e "${YELLOW}此向导将引导您交互式创建 docker-compose.yml 并部署${NC}"
-        echo ""
-        echo -e "  ${GREEN}[1]${NC} 新建服务部署"
-        echo -e "  ${GREEN}[2]${NC} 已有模板部署"
-        echo -e "  ${GREEN}[3]${NC} 自定义部署 (粘贴 docker-compose.yml)"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
-        read c
-        echo
-        
-        case "$c" in
-            1) docker_deploy_new ;;
-            2) docker_deploy_template ;;
-            3) docker_deploy_custom ;;
-            0) break ;;
-        esac
-    done
-}
-
-docker_deploy_new() {
-    clear
-    echo -e "${BLUE}═══ 新建服务部署 ═══${NC}"
-    
-    pct list
-    echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
-    
-    if [[ -z "$lxc_id" ]]; then
-        echo -e "${RED}错误: 请输入容器 ID${NC}"
-        pause_func
-        return
-    fi
-    
-    if ! pct status "$lxc_id" | grep -q "running"; then
-        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    if ! check_and_install_docker "$lxc_id"; then
-        echo -e "${RED}Docker 环境检查失败，无法继续部署${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    echo "=== 第1步: 服务基础配置 ==="
-    echo -ne "镜像 (如 nginx:latest, mysql:8, redis:alpine): "; read image
-    if [[ -z "$image" ]]; then
-        echo -e "${RED}错误: 请输入镜像${NC}"
-        pause_func
-        return
-    fi
-    
-    # 自动从镜像名提取服务名称（去除仓库路径和标签）
-    local auto_service_name=$(echo "$image" | sed 's|.*/||' | sed 's|:.*||')
-    echo -e "${CYAN}服务名称将使用镜像名: ${GREEN}$auto_service_name${NC}"
-    echo -ne "自定义服务名称 (回车使用镜像名): "; read service_name
-    service_name=${service_name:-$auto_service_name}
-    
-    echo ""
-    echo "=== 第2步: 端口映射 ==="
-    echo -e "${YELLOW}格式: 主机端口:容器端口 (如 8080:80)${NC}"
-    echo -e "${YELLOW}多个端口用逗号分隔 (如 80:80, 443:443)${NC}"
-    echo -ne "端口映射 (直接回车跳过): "; read ports
-    port_config=""
-    if [[ -n "$ports" ]]; then
-        IFS=',' read -ra PORT_ARRAY <<< "$ports"
-        for port in "${PORT_ARRAY[@]}"; do
-            port=$(echo "$port" | xargs)
-            port_config+="      - \"$port\"\n"
-        done
-    fi
-    
-    echo ""
-    echo "=== 第3步: 环境变量 ==="
-    echo -e "${YELLOW}格式: KEY=VALUE (如 MYSQL_ROOT_PASSWORD=123456)${NC}"
-    echo -e "${YELLOW}多个变量用逗号分隔${NC}"
-    echo -ne "环境变量 (直接回车跳过): "; read envs
-    env_config=""
-    if [[ -n "$envs" ]]; then
-        IFS=',' read -ra ENV_ARRAY <<< "$envs"
-        for env in "${ENV_ARRAY[@]}"; do
-            env=$(echo "$env" | xargs)
-            env_config+="      - \"$env\"\n"
-        done
-    fi
-    
-    echo ""
-    echo "=== 第4步: 卷挂载 ==="
-    echo -e "${YELLOW}格式: 主机路径:容器路径 (如 /data:/app/data)${NC}"
-    echo -e "${YELLOW}多个卷用逗号分隔${NC}"
-    echo -ne "卷挂载 (直接回车跳过): "; read volumes
-    volume_config=""
-    if [[ -n "$volumes" ]]; then
-        IFS=',' read -ra VOL_ARRAY <<< "$volumes"
-        for vol in "${VOL_ARRAY[@]}"; do
-            vol=$(echo "$vol" | xargs)
-            volume_config+="      - $vol\n"
-        done
-    fi
-    
-    echo ""
-    echo "=== 第5步: 重启策略 ==="
-    echo -e "  ${GREEN}[1]${NC} always (推荐，容器自动重启)"
-    echo -e "  ${GREEN}[2]${NC} on-failure (失败时重启)"
-    echo -e "  ${GREEN}[3]${NC} unless-stopped (除非手动停止)"
-    echo -ne "选择重启策略 [1]: "; read restart_choice
-    restart_choice=${restart_choice:-1}
-    case "$restart_choice" in
-        1) restart_policy="always" ;;
-        2) restart_policy="on-failure" ;;
-        3) restart_policy="unless-stopped" ;;
-        *) restart_policy="always" ;;
-    esac
-    
-    echo ""
-    echo "=== 确认配置 ==="
-    echo -e "${YELLOW}服务名称:${NC} $service_name"
-    echo -e "${YELLOW}镜像:${NC} $image"
-    echo -e "${YELLOW}端口:${NC} ${ports:-无}"
-    echo -e "${YELLOW}环境变量:${NC} ${envs:-无}"
-    echo -e "${YELLOW}卷挂载:${NC} ${volumes:-无}"
-    echo -e "${YELLOW}重启策略:${NC} $restart_policy"
-    echo ""
-    echo -ne "确认部署? (y/N): "; read confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo "已取消"
-        pause_func
-        return
-    fi
-    
-    COMPOSE_FILE="services:
-  $service_name:
-    image: $image
-    container_name: $service_name
-    restart: $restart_policy"
-    
-    if [[ -n "$port_config" ]]; then
-        COMPOSE_FILE+="
-    ports:"
-        COMPOSE_FILE+=$'\n'"$port_config"
-    fi
-    
-    if [[ -n "$env_config" ]]; then
-        COMPOSE_FILE+="
-    environment:"
-        COMPOSE_FILE+=$'\n'"$env_config"
-    fi
-    
-    if [[ -n "$volume_config" ]]; then
-        COMPOSE_FILE+="
-    volumes:"
-        COMPOSE_FILE+=$'\n'"$volume_config"
-    fi
-    
-    echo ""
-    echo "=== 生成 docker-compose.yml ==="
-    echo "$COMPOSE_FILE"
-    echo ""
-    
-    echo "正在部署到 LXC $lxc_id ..."
-    echo "$COMPOSE_FILE" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
-    
-    COMPOSE_CMD=$(get_compose_cmd "$lxc_id")
-    if [[ -z "$COMPOSE_CMD" ]]; then
-        echo -e "${RED}Docker Compose 未安装${NC}"
-        pause_func
-        return
-    fi
-    
-    if pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d" 2>&1; then
-        echo ""
-        echo -e "${GREEN}部署完成!${NC}"
-        echo -e "查看容器状态: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- docker logs $service_name${NC}"
-    else
-        echo ""
-        echo -e "${RED}部署失败，请检查配置是否正确${NC}"
-    fi
-    
-    pause_func
-}
-
-docker_deploy_template() {
-    clear
-    echo -e "${BLUE}═══ 模板部署 ═══${NC}"
-    echo -e "${YELLOW}选择要部署的模板:${NC}"
-    echo ""
-    echo -e "  ${GREEN}[1]${NC} Nginx (Web服务器)"
-    echo -e "  ${GREEN}[2]${NC} MySQL (数据库)"
-    echo -e "  ${GREEN}[3]${NC} PostgreSQL (数据库)"
-    echo -e "  ${GREEN}[4]${NC} Redis (缓存)"
-    echo -e "  ${GREEN}[5]${NC} MongoDB (数据库)"
-    echo -e "  ${GREEN}[6]${NC} Portainer (容器管理)"
-    echo -e "  ${GREEN}[7]${NC} Nginx Proxy Manager (反向代理)"
-    echo -e "  ${GREEN}[8]${NC} WordPress (博客)"
-    echo -e "  ${GREEN}[9]${NC} Uptime Kuma (监控)"
-    echo -e "  ${GREEN}[0]${NC} 返回"
-    echo -e "${YELLOW}💡 提示: 请先创建 LXC 容器，或使用已有容器${NC}"
-    echo -ne "${CYAN}选择: ${NC}"
-    read t
-    echo
-    
-    case "$t" in
-        1) TEMPLATE="nginx" ;;
-        2) TEMPLATE="mysql" ;;
-        3) TEMPLATE="postgresql" ;;
-        4) TEMPLATE="redis" ;;
-        5) TEMPLATE="mongodb" ;;
-        6) TEMPLATE="portainer" ;;
-        7) TEMPLATE="npm" ;;
-        8) TEMPLATE="wordpress" ;;
-        9) TEMPLATE="uptimekuma" ;;
-        0) return ;;
-        *) echo "无效选择"; pause_func; return ;;
-    esac
-    
-    pct list
-    echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
-    
-    if [[ -z "$lxc_id" ]]; then
-        echo -e "${RED}错误: 请输入容器 ID${NC}"
-        pause_func
-        return
-    fi
-    
-    if ! pct status "$lxc_id" | grep -q "running"; then
-        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    if ! check_and_install_docker "$lxc_id"; then
-        echo -e "${RED}Docker 环境检查失败，无法继续部署${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    
-    case "$TEMPLATE" in
-        nginx)
-            COMPOSE_FILE="services:
-  nginx:
-    image: nginx:latest
-    container_name: nginx
-    restart: always
-    ports:
-      - \"80:80\"
-      - \"443:443\"
-    volumes:
-      - /opt/docker-data/nginx/conf.d:/etc/nginx/conf.d
-      - /opt/docker-data/nginx/html:/usr/share/nginx/html
-      - /opt/docker-data/nginx/logs:/var/log/nginx"
-            ;;
-        mysql)
-            echo -ne "设置 MySQL root 密码: "; read -s mysql_pwd
-            echo
-            COMPOSE_FILE="services:
-  mysql:
-    image: mysql:8
-    container_name: mysql
-    restart: always
-    ports:
-      - \"3306:3306\"
-    environment:
-      - MYSQL_ROOT_PASSWORD=$mysql_pwd
-    volumes:
-      - /opt/docker-data/mysql:/var/lib/mysql"
-            ;;
-        postgresql)
-            echo -ne "设置 PostgreSQL 密码: "; read -s pg_pwd
-            echo
-            COMPOSE_FILE="services:
-  postgresql:
-    image: postgres:16
-    container_name: postgresql
-    restart: always
-    ports:
-      - \"5432:5432\"
-    environment:
-      - POSTGRES_PASSWORD=$pg_pwd
-    volumes:
-      - /opt/docker-data/postgresql:/var/lib/postgresql/data"
-            ;;
-        redis)
-            COMPOSE_FILE="services:
-  redis:
-    image: redis:alpine
-    container_name: redis
-    restart: always
-    ports:
-      - \"6379:6379\"
-    volumes:
-      - /opt/docker-data/redis:/data"
-            ;;
-        mongodb)
-            echo -ne "设置 MongoDB 用户名: "; read mongo_user
-            echo -ne "设置 MongoDB 密码: "; read -s mongo_pwd
-            echo
-            COMPOSE_FILE="services:
-  mongodb:
-    image: mongo:7
-    container_name: mongodb
-    restart: always
-    ports:
-      - \"27017:27017\"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=$mongo_user
-      - MONGO_INITDB_ROOT_PASSWORD=$mongo_pwd
-    volumes:
-      - /opt/docker-data/mongodb:/data/db"
-            ;;
-        portainer)
-            COMPOSE_FILE="services:
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    restart: always
-    ports:
-      - \"9000:9000\"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /opt/docker-data/portainer:/data"
-            ;;
-        npm)
-            COMPOSE_FILE="services:
-  npm:
-    image: jc21/nginx-proxy-manager:latest
-    container_name: nginx-proxy-manager
-    restart: always
-    ports:
-      - \"80:80\"
-      - \"443:443\"
-      - \"81:81\"
-    volumes:
-      - /opt/docker-data/nginx-proxy-manager/data:/data
-      - /opt/docker-data/nginx-proxy-manager/letsencrypt:/etc/letsencrypt"
-            ;;
-        wordpress)
-            echo -ne "设置 WordPress 数据库密码: "; read -s wp_db_pwd
-            echo
-            COMPOSE_FILE="services:
-  wordpress:
-    image: wordpress:latest
-    container_name: wordpress
-    restart: always
-    ports:
-      - \"8080:80\"
-    environment:
-      - WORDPRESS_DB_HOST=db
-      - WORDPRESS_DB_USER=wordpress
-      - WORDPRESS_DB_PASSWORD=$wp_db_pwd
-      - WORDPRESS_DB_NAME=wordpress
-    volumes:
-      - /opt/docker-data/wordpress/html:/var/www/html
-  db:
-    image: mysql:8
-    container_name: wordpress-db
-    restart: always
-    environment:
-      - MYSQL_ROOT_PASSWORD=$wp_db_pwd
-      - MYSQL_DATABASE=wordpress
-      - MYSQL_USER=wordpress
-      - MYSQL_PASSWORD=$wp_db_pwd
-    volumes:
-      - /opt/docker-data/wordpress/mysql:/var/lib/mysql"
-            ;;
-        uptimekuma)
-            COMPOSE_FILE="services:
-  uptime-kuma:
-    image: louislam/uptime-kuma:1
-    container_name: uptime-kuma
-    restart: always
-    ports:
-      - \"3001:3001\"
-    volumes:
-      - /opt/docker-data/uptime-kuma:/app/data"
-            ;;
-    esac
-    
-    echo ""
-    echo "=== 部署模板: $TEMPLATE ==="
-    echo "$COMPOSE_FILE"
-    echo ""
-    echo -ne "确认部署? (y/N): "; read confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo "已取消"
-        pause_func
-        return
-    fi
-    
-    echo "正在部署..."
-    echo "$COMPOSE_FILE" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
-    
-    COMPOSE_CMD=$(get_compose_cmd "$lxc_id")
-    if [[ -z "$COMPOSE_CMD" ]]; then
-        echo -e "${RED}Docker Compose 未安装${NC}"
-        pause_func
-        return
-    fi
-    
-    if pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d" 2>&1; then
-        echo ""
-        echo -e "${GREEN}部署完成!${NC}"
-        echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-        echo ""
-        echo -e "${YELLOW}数据目录:${NC}"
-        case "$TEMPLATE" in
-            nginx)
-                echo -e "  配置文件: ${CYAN}/opt/docker-data/nginx/conf.d${NC}"
-                echo -e "  网站目录: ${CYAN}/opt/docker-data/nginx/html${NC}"
-                echo -e "  日志目录: ${CYAN}/opt/docker-data/nginx/logs${NC}"
-                ;;
-            mysql)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/mysql${NC}"
-                ;;
-            postgresql)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/postgresql${NC}"
-                ;;
-            redis)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/redis${NC}"
-                ;;
-            mongodb)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/mongodb${NC}"
-                ;;
-            portainer)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/portainer${NC}"
-                ;;
-            npm)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/nginx-proxy-manager/data${NC}"
-                echo -e "  证书目录: ${CYAN}/opt/docker-data/nginx-proxy-manager/letsencrypt${NC}"
-                ;;
-            wordpress)
-                echo -e "  网站目录: ${CYAN}/opt/docker-data/wordpress/html${NC}"
-                echo -e "  数据库目录: ${CYAN}/opt/docker-data/wordpress/mysql${NC}"
-                ;;
-            uptimekuma)
-                echo -e "  数据目录: ${CYAN}/opt/docker-data/uptime-kuma${NC}"
-                ;;
-        esac
-    else
-        echo ""
-        echo -e "${RED}部署失败，请检查配置是否正确${NC}"
-    fi
-    
-    pause_func
-}
-
-# 自定义 docker-compose 部署
-docker_deploy_custom() {
-    clear
-    echo -e "${BLUE}═══ 自定义部署 ═══${NC}"
-    echo -e "${YELLOW}请输入您准备好的 docker-compose.yml 内容${NC}"
-    echo ""
-    
-    pct list
-    echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
-    
-    if [[ -z "$lxc_id" ]]; then
-        echo -e "${RED}错误: 请输入容器 ID${NC}"
-        pause_func
-        return
-    fi
-    
-    if ! pct status "$lxc_id" | grep -q "running"; then
-        echo -e "${RED}错误: 容器 $lxc_id 未运行，请先启动${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    if ! check_and_install_docker "$lxc_id"; then
-        echo -e "${RED}Docker 环境检查失败，无法继续部署${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    echo "=== 输入 docker-compose.yml 内容 ==="
-    echo -e "${YELLOW}请粘贴 docker-compose.yml 内容（完成后按 Ctrl+D）:${NC}"
-    echo ""
-    
-    COMPOSE_CONTENT=$(cat)
-    
-    if [[ -z "$COMPOSE_CONTENT" ]]; then
-        echo -e "${RED}错误: docker-compose.yml 内容不能为空${NC}"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    echo "=== 预览配置 ==="
-    echo "$COMPOSE_CONTENT"
-    echo ""
-    echo -ne "确认部署? (y/N): "; read confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo "已取消"
-        pause_func
-        return
-    fi
-    
-    echo ""
-    echo "=== 部署中 ==="
-    echo "$COMPOSE_CONTENT" | pct exec "$lxc_id" -- bash -c 'cat > /tmp/docker-compose.yml'
-    
-    COMPOSE_CMD=$(get_compose_cmd "$lxc_id")
-    if [[ -z "$COMPOSE_CMD" ]]; then
-        echo -e "${RED}Docker Compose 未安装${NC}"
-        pause_func
-        return
-    fi
-    
-    pct exec "$lxc_id" -- bash -c "cd /tmp && $COMPOSE_CMD -f /tmp/docker-compose.yml up -d"
-    
-    if [[ $? -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}部署完成!${NC}"
-        echo -e "查看容器: ${CYAN}pct exec $lxc_id -- docker ps${NC}"
-        echo -e "查看日志: ${CYAN}pct exec $lxc_id -- $COMPOSE_CMD -f /tmp/docker-compose.yml logs${NC}"
-    else
-        echo -e "${RED}部署失败，请检查配置是否正确${NC}"
     fi
     
     pause_func
