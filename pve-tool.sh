@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.7.2"
+    VERSION="V0.7.3"
 fi
 
 # 查询 GitHub 最新版本（支持国内镜像加速）
@@ -1653,10 +1653,14 @@ docker_change_registry() {
     fi
     
     echo ""
-    echo -e "${YELLOW}测试拉取镜像 (hello-world)...${NC}"
-    if pct exec "$lxc_id" -- docker pull hello-world 2>&1 | head -5; then
+    echo -e "${YELLOW}测试拉取镜像 (alpine)...${NC}"
+    if pct exec "$lxc_id" -- docker pull alpine:latest 2>&1 | tail -3; then
         echo ""
         echo -e "${GREEN}Docker 镜像源配置成功！${NC}"
+        echo -e "${YELLOW}清理测试镜像...${NC}"
+        pct exec "$lxc_id" -- docker rmi alpine:latest 2>/dev/null || true
+        pct exec "$lxc_id" -- docker image prune -f 2>/dev/null || true
+        echo -e "${GREEN}测试数据已清理${NC}"
     else
         echo -e "${YELLOW}测试拉取失败，请检查网络或尝试其他镜像源${NC}"
     fi
