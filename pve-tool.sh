@@ -8,14 +8,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.7.1"
+    VERSION="V0.7.2"
 fi
 
-# 查询 GitHub 最新版本
+# 查询 GitHub 最新版本（支持国内镜像加速）
 get_latest_version() {
     local latest
-    latest=$(curl -sS "https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
-    echo "$latest"
+    local api_urls=(
+        "https://ghproxy.net/https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
+        "https://mirror.ghproxy.com/https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
+        "https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
+    )
+    
+    for url in "${api_urls[@]}"; do
+        latest=$(curl -sSL --connect-timeout 5 "$url" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+        if [[ -n "$latest" ]]; then
+            echo "$latest"
+            return
+        fi
+    done
+    echo ""
 }
 
 LATEST_VERSION=$(get_latest_version)
@@ -182,7 +194,16 @@ EOF
     echo -e "${NC}"
     echo -e "${GREEN}PVE Toolkit 一键脚本${NC}"
     echo -e "${YELLOW}Proxmox VE 管理工具集，简化日常运维${NC}"
-    echo -e "${CYAN}当前版本: ${VERSION} | 最新版本: ${LATEST_VERSION}${NC}"
+    
+    # 版本比较并显示提示
+    local current_ver=${VERSION#V}
+    local latest_ver=${LATEST_VERSION#V}
+    if [[ "$LATEST_VERSION" != "$VERSION" ]] && [[ "$latest_ver" > "$current_ver" ]] 2>/dev/null; then
+        echo -e "${RED}⚠️  有新版本可用！当前: ${VERSION} → 最新: ${LATEST_VERSION}${NC}"
+        echo -e "${YELLOW}   运行 git pull 或重新下载脚本以更新${NC}"
+    else
+        echo -e "${CYAN}当前版本: ${VERSION} (已是最新)${NC}"
+    fi
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "${WHITE}请选择您需要的功能:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
