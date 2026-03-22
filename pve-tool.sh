@@ -1311,6 +1311,210 @@ install_lucky() {
     pause_func
 }
 
+install_openclaw() {
+    clear
+    echo -e "${BLUE}════════ OpenClaw 安装 ════════${NC}"
+    echo -e "${YELLOW}OpenClaw - 个人 AI 助手，支持多种消息平台${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    # 检查容器是否存在
+    if ! pct status "$lxc_id" &>/dev/null; then
+        echo -e "${RED}错误: 容器 $lxc_id 不存在${NC}"
+        pause_func
+        return
+    fi
+    
+    # 检查容器是否运行
+    if ! pct status "$lxc_id" | grep -q "running"; then
+        echo -e "${YELLOW}容器未运行，正在启动...${NC}"
+        pct start "$lxc_id"
+        sleep 3
+    fi
+    
+    # 检查 Docker 环境
+    echo ""
+    echo -e "${YELLOW}检查 Docker 环境...${NC}"
+    if ! pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null && \
+       ! pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
+        echo ""
+        echo -e "${RED}错误: 容器中未安装 Docker${NC}"
+        echo -e "${YELLOW}请先使用「安装 Docker」功能安装 Docker 环境${NC}"
+        pause_func
+        return
+    fi
+    
+    echo -e "${GREEN}Docker 环境已就绪${NC}"
+    
+    # 获取容器 IP 用于显示
+    local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
+    
+    echo ""
+    echo -e "${YELLOW}════════ 配置 OpenClaw ════════${NC}"
+    
+    # 默认配置
+    local openclaw_port="18789"
+    local openclaw_bridge_port="18790"
+    local openclaw_config_dir="/opt/openclaw/config"
+    local openclaw_workspace_dir="/opt/openclaw/workspace"
+    
+    echo -ne "网关端口 [${openclaw_port}]: "; read input_port
+    openclaw_port=${input_port:-$openclaw_port}
+    
+    echo -ne "桥接端口 [${openclaw_bridge_port}]: "; read input_bridge_port
+    openclaw_bridge_port=${input_bridge_port:-$openclaw_bridge_port}
+    
+    echo -ne "配置目录 [${openclaw_config_dir}]: "; read input_config
+    openclaw_config_dir=${input_config:-$openclaw_config_dir}
+    
+    echo -ne "工作目录 [${openclaw_workspace_dir}]: "; read input_workspace
+    openclaw_workspace_dir=${input_workspace:-$openclaw_workspace_dir}
+    
+    echo ""
+    echo -e "${YELLOW}正在安装 OpenClaw...${NC}"
+    
+    # 创建目录
+    pct exec "$lxc_id" -- mkdir -p "$openclaw_config_dir" "$openclaw_workspace_dir"
+    
+    # 检查是否已存在 openclaw 容器
+    if pct exec "$lxc_id" -- docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^openclaw-gateway$'; then
+        echo -e "${YELLOW}检测到已存在 OpenClaw 容器，正在移除...${NC}"
+        pct exec "$lxc_id" -- docker rm -f openclaw-gateway openclaw-cli 2>/dev/null
+    fi
+    
+    # 获取 Docker Compose 命令
+    local compose_cmd=$(get_compose_cmd "$lxc_id")
+    if [[ -z "$compose_cmd" ]]; then
+        echo -e "${RED}错误: Docker Compose 未安装${NC}"
+        pause_func
+        return
+    fi
+    
+    # 创建 docker-compose.yml 文件
+    local compose_file="/tmp/openclaw-docker-compose.yml"
+    pct exec "$lxc_id" -- bash -c "cat > $compose_file" << EOF
+services:
+  openclaw-gateway:
+    image: ghcr.io/openclaw/openclaw:latest
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: \${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: \${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      CLAUDE_AI_SESSION_KEY: \${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: \${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: \${CLAUDE_WEB_COOKIE:-}
+      TZ: \${OPENCLAW_TZ:-UTC}
+    volumes:
+      - ${openclaw_config_dir}:/home/node/.openclaw
+      - ${openclaw_workspace_dir}:/home/node/.openclaw/workspace
+    ports:
+      - "${openclaw_port}:18789"
+      - "${openclaw_bridge_port}:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  openclaw-cli:
+    image: ghcr.io/openclaw/openclaw:latest
+    network_mode: "service:openclaw-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: \${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: \${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      BROWSER: echo
+      CLAUDE_AI_SESSION_KEY: \${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: \${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: \${CLAUDE_WEB_COOKIE:-}
+      TZ: \${OPENCLAW_TZ:-UTC}
+    volumes:
+      - ${openclaw_config_dir}:/home/node/.openclaw
+      - ${openclaw_workspace_dir}:/home/node/.openclaw/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+    depends_on:
+      - openclaw-gateway
+EOF
+    
+    # 创建 .env 文件
+    pct exec "$lxc_id" -- bash -c "cat > /tmp/openclaw.env" << EOF
+OPENCLAW_GATEWAY_TOKEN=
+OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=
+CLAUDE_AI_SESSION_KEY=
+CLAUDE_WEB_SESSION_KEY=
+CLAUDE_WEB_COOKIE=
+OPENCLAW_TZ=UTC
+EOF
+    
+    # 启动服务
+    echo ""
+    echo -e "${YELLOW}启动 OpenClaw 服务...${NC}"
+    if pct exec "$lxc_id" -- bash -lc "cd /tmp && $compose_cmd --env-file /tmp/openclaw.env -f $compose_file up -d" 2>&1; then
+        echo ""
+        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+        echo ""
+        echo -e "${GREEN}访问地址:${NC}"
+        if [[ -n "$container_ip" ]]; then
+            echo -e "  ${CYAN}http://${container_ip}:${openclaw_port}${NC}"
+        else
+            echo -e "  ${CYAN}http://<容器IP>:${openclaw_port}${NC}"
+        fi
+        echo ""
+        echo -e "${YELLOW}配置目录: ${openclaw_config_dir}${NC}"
+        echo -e "${YELLOW}工作目录: ${openclaw_workspace_dir}${NC}"
+        echo ""
+        echo -e "${CYAN}容器内配置路径: /home/node/.openclaw${NC}"
+        echo -e "${CYAN}容器内工作路径: /home/node/.openclaw/workspace${NC}"
+        echo ""
+        echo -e "${RED}重要提示:${NC}"
+        echo -e "${RED}  1. 首次访问需要完成 OpenClaw 引导设置${NC}"
+        echo -e "${RED}  2. 请设置 OPENCLAW_GATEWAY_TOKEN 以确保安全访问${NC}"
+        echo -e "${RED}  3. 可通过 docker compose logs 查看日志${NC}"
+    else
+        echo -e "${RED}安装失败${NC}"
+    fi
+    
+    pause_func
+}
+
 # Docker 管理
 docker_menu() {
     while true; do
@@ -1319,8 +1523,9 @@ docker_menu() {
         echo -e "  ${GREEN}[1]${NC} 安装 Docker (含 Docker Compose)"
         echo -e "  ${GREEN}[2]${NC} 安装 DPanel 面板"
         echo -e "  ${GREEN}[3]${NC} 安装 Lucky 大吉"
-        echo -e "  ${GREEN}[4]${NC} Docker 换源"
-        echo -e "  ${GREEN}[5]${NC} Docker 容器管理"
+        echo -e "  ${GREEN}[4]${NC} 安装 OpenClaw"
+        echo -e "  ${GREEN}[5]${NC} Docker 换源"
+        echo -e "  ${GREEN}[6]${NC} Docker 容器管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -1342,9 +1547,12 @@ docker_menu() {
                 install_lucky
                 ;;
             4)
-                docker_change_registry
+                install_openclaw
                 ;;
             5)
+                docker_change_registry
+                ;;
+            6)
                 docker_container_menu
                 ;;
             0) break ;;
