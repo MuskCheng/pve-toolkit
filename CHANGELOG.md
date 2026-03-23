@@ -2,6 +2,17 @@
 
 所有重要的更改都将记录在此文件中。
 
+## [V0.9.1] - 2026-03-23
+
+### 修复
+
+- **OpenClaw 原生安装前端构建问题**
+  - 新增 Bun 安装步骤（openclaw 构建依赖）
+  - 增加前端资源构建验证（检查 dist/control-ui/index.html）
+  - 构建失败时自动重试 `pnpm ui:install && pnpm ui:build`
+  - 优化构建日志输出，显示关键信息
+  - systemd 服务添加 Bun PATH 环境变量
+
 ## [V0.9.0] - 2026-03-23
 
 ### 新增

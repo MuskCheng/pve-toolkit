@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.9.0"
+    VERSION="V0.9.1"
 fi
 
 # 查询 GitHub 最新版本（支持国内镜像加速）
@@ -1407,54 +1407,107 @@ install_openclaw_native() {
     echo ""
     
     # 1. 更新系统
-    echo -e "${CYAN}[1/8] 更新系统...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt update -qq && apt upgrade -y -qq" 2>&1 | tail -1
+    echo -e "${CYAN}[1/9] 更新系统...${NC}"
+    pct exec "$lxc_id" -- bash -lc "apt update -qq && apt upgrade -y -qq" > /dev/null 2>&1
+    echo -e "${GREEN}  ✓ 系统更新完成${NC}"
     
     # 2. 安装基础依赖
-    echo -e "${CYAN}[2/8] 安装基础依赖...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget git build-essential" 2>&1 | tail -1
+    echo -e "${CYAN}[2/9] 安装基础依赖...${NC}"
+    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget git build-essential unzip" > /dev/null 2>&1
+    echo -e "${GREEN}  ✓ 基础依赖安装完成${NC}"
     
     # 3. 安装 Node.js 24
-    echo -e "${CYAN}[3/8] 安装 Node.js 24...${NC}"
+    echo -e "${CYAN}[3/9] 安装 Node.js 24...${NC}"
     pct exec "$lxc_id" -- bash -lc '
-        if ! command -v node &>/dev/null; then
-            curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-            apt install -y -qq nodejs
-        else
-            echo "Node.js 已安装: $(node -v)"
+        if ! command -v node &>/dev/null || [[ "$(node -v)" != v24* ]]; then
+            curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1
+            apt install -y -qq nodejs > /dev/null 2>&1
         fi
-    ' 2>&1 | tail -3
+        echo "  ✓ Node.js $(node -v) 已安装"
+    '
     
     # 4. 安装 pnpm
-    echo -e "${CYAN}[4/8] 安装 pnpm...${NC}"
+    echo -e "${CYAN}[4/9] 安装 pnpm...${NC}"
     pct exec "$lxc_id" -- bash -lc '
         if ! command -v pnpm &>/dev/null; then
-            npm install -g pnpm
+            npm install -g pnpm > /dev/null 2>&1
         fi
-        echo "pnpm $(pnpm -v) 已安装"
-    ' 2>&1 | tail -1
+        echo "  ✓ pnpm $(pnpm -v) 已安装"
+    '
     
-    # 5. 克隆 OpenClaw 仓库
-    echo -e "${CYAN}[5/8] 克隆 OpenClaw 仓库...${NC}"
+    # 5. 安装 Bun (构建需要)
+    echo -e "${CYAN}[5/9] 安装 Bun...${NC}"
+    pct exec "$lxc_id" -- bash -lc '
+        if ! command -v bun &>/dev/null; then
+            curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1
+            export PATH="$HOME/.bun/bin:$PATH"
+            echo "export PATH=\"\$HOME/.bun/bin:\$PATH\"" >> ~/.bashrc
+        fi
+        echo "  ✓ Bun $(~/.bun/bin/bun --version 2>/dev/null || echo "已安装") 已安装"
+    '
+    
+    # 6. 克隆 OpenClaw 仓库
+    echo -e "${CYAN}[6/9] 克隆 OpenClaw 仓库...${NC}"
     pct exec "$lxc_id" -- bash -lc "
         if [[ -d '${openclaw_dir}' ]]; then
-            echo '目录已存在，更新中...'
+            echo '  目录已存在，更新中...'
             cd '${openclaw_dir}'
-            git pull
+            git pull > /dev/null 2>&1
         else
-            git clone https://github.com/openclaw/openclaw.git '${openclaw_dir}'
+            git clone https://github.com/openclaw/openclaw.git '${openclaw_dir}' > /dev/null 2>&1
         fi
-    " 2>&1 | tail -3
+        echo '  ✓ 仓库克隆完成'
+    "
     
-    # 6. 安装依赖并构建
-    echo -e "${CYAN}[6/8] 安装依赖...${NC}"
-    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm install" 2>&1 | tail -3
+    # 7. 安装依赖
+    echo -e "${CYAN}[7/9] 安装项目依赖...${NC}"
+    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm install --frozen-lockfile" 2>&1 | grep -E "(Progress|ERR|error|failed)" | tail -5 || true
+    echo -e "${GREEN}  ✓ 依赖安装完成${NC}"
     
-    echo -e "${CYAN}[7/8] 构建前端资源...${NC}"
-    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm ui:build" 2>&1 | tail -5
+    # 8. 构建前端资源 (关键步骤)
+    echo -e "${CYAN}[8/9] 构建前端资源...${NC}"
+    pct exec "$lxc_id" -- bash -lc "
+        export PATH=\"\$HOME/.bun/bin:\$PATH\"
+        cd '${openclaw_dir}'
+        pnpm ui:build
+    " 2>&1 | grep -E "(building|built|error|ERR|failed|✓)" | tail -10 || true
     
-    echo -e "${CYAN}[8/8] 构建主项目...${NC}"
-    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm build" 2>&1 | tail -3
+    # 验证前端资源是否构建成功
+    local ui_check=$(pct exec "$lxc_id" -- bash -lc "ls -la '${openclaw_dir}/dist/control-ui/index.html' 2>/dev/null && echo 'EXISTS' || echo 'MISSING'")
+    if echo "$ui_check" | grep -q "EXISTS"; then
+        echo -e "${GREEN}  ✓ 前端资源构建成功${NC}"
+    else
+        echo -e "${YELLOW}  ⚠ 前端资源可能未正确构建，尝试重新构建...${NC}"
+        pct exec "$lxc_id" -- bash -lc "
+            export PATH=\"\$HOME/.bun/bin:\$PATH\"
+            cd '${openclaw_dir}'
+            pnpm ui:install
+            pnpm ui:build
+        " 2>&1 | tail -10
+        
+        # 再次检查
+        ui_check=$(pct exec "$lxc_id" -- bash -lc "ls -la '${openclaw_dir}/dist/control-ui/index.html' 2>/dev/null && echo 'EXISTS' || echo 'MISSING'")
+        if echo "$ui_check" | grep -q "EXISTS"; then
+            echo -e "${GREEN}  ✓ 前端资源构建成功${NC}"
+        else
+            echo -e "${RED}  ✗ 前端资源构建失败，请手动执行: cd ${openclaw_dir} && pnpm ui:build${NC}"
+        fi
+    fi
+    
+    # 9. 构建主项目
+    echo -e "${CYAN}[9/9] 构建主项目...${NC}"
+    pct exec "$lxc_id" -- bash -lc "
+        export PATH=\"\$HOME/.bun/bin:\$PATH\"
+        cd '${openclaw_dir}'
+        pnpm build:docker || pnpm build
+    " 2>&1 | grep -E "(building|built|error|ERR|failed)" | tail -5 || true
+    
+    # 验证主项目构建
+    if pct exec "$lxc_id" -- test -f "${openclaw_dir}/dist/index.js"; then
+        echo -e "${GREEN}  ✓ 主项目构建成功${NC}"
+    else
+        echo -e "${RED}  ✗ 主项目构建失败${NC}"
+    fi
     
     # 生成 Gateway Token
     local gateway_token=$(pct exec "$lxc_id" -- bash -lc 'openssl rand -hex 32' 2>/dev/null)
@@ -1462,11 +1515,15 @@ install_openclaw_native() {
         gateway_token=$(openssl rand -hex 32)
     fi
     
+    # 创建配置目录
+    pct exec "$lxc_id" -- bash -lc "mkdir -p ~/.openclaw/workspace"
+    
     # 创建启动脚本
     echo -e "${CYAN}创建启动脚本...${NC}"
     pct exec "$lxc_id" -- bash -lc "
         cat > /usr/local/bin/openclaw << 'SCRIPT'
 #!/bin/bash
+export PATH=\"\$HOME/.bun/bin:\$PATH\"
 cd ${openclaw_dir}
 node dist/index.js \"\\\$@\"
 SCRIPT
@@ -1486,6 +1543,7 @@ Type=simple
 User=root
 WorkingDirectory=${openclaw_dir}
 Environment=NODE_ENV=production
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=OPENCLAW_GATEWAY_TOKEN=${gateway_token}
 ExecStart=/usr/bin/node ${openclaw_dir}/dist/index.js gateway --bind lan --port ${openclaw_port}
 Restart=always
@@ -1496,9 +1554,6 @@ WantedBy=multi-user.target
 SERVICE
         systemctl daemon-reload
     "
-    
-    # 创建配置目录
-    pct exec "$lxc_id" -- bash -lc "mkdir -p ~/.openclaw/workspace"
     
     echo ""
     echo -e "${GREEN}════════ 安装完成 ════════${NC}"
