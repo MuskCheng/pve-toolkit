@@ -195,10 +195,10 @@ EOF
     echo -e "${GREEN}PVE Toolkit 一键脚本${NC}"
     echo -e "${YELLOW}Proxmox VE 管理工具集，简化日常运维${NC}"
     
-    # 版本比较并显示提示
-    local current_ver=${VERSION#V}
-    local latest_ver=${LATEST_VERSION#V}
-    if [[ "$LATEST_VERSION" != "$VERSION" ]] && [[ "$latest_ver" > "$current_ver" ]] 2>/dev/null; then
+    # 版本比较并显示提示（统一处理大小写 v/V）
+    local current_ver=${VERSION#[vV]}
+    local latest_ver=${LATEST_VERSION#[vV]}
+    if [[ "$latest_ver" != "$current_ver" ]] && [[ "$latest_ver" > "$current_ver" ]] 2>/dev/null; then
         echo -e "${RED}⚠️  有新版本可用！当前: ${VERSION} → 最新: ${LATEST_VERSION}${NC}"
         echo -e "${YELLOW}   运行 git pull 或重新下载脚本以更新${NC}"
     else
