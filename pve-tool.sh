@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.9.1"
+    VERSION="V0.9.2"
 fi
 
 # 查询 GitHub 最新版本（支持国内镜像加速）
@@ -1365,171 +1365,107 @@ install_openclaw_native() {
     clear
     echo -e "${BLUE}════════ OpenClaw 原生安装 ════════${NC}"
     echo ""
-    
+
     pct list
     echo ""
     echo -ne "选择 LXC 容器 ID: "; read lxc_id
-    
+
     if [[ -z "$lxc_id" ]]; then
         echo -e "${RED}错误: 请输入容器 ID${NC}"
         pause_func
         return
     fi
-    
+
     # 检查容器是否存在
     if ! pct status "$lxc_id" &>/dev/null; then
         echo -e "${RED}错误: 容器 $lxc_id 不存在${NC}"
         pause_func
         return
     fi
-    
+
     # 检查容器是否运行
     if ! pct status "$lxc_id" | grep -q "running"; then
         echo -e "${YELLOW}容器未运行，正在启动...${NC}"
         pct start "$lxc_id"
         sleep 3
     fi
-    
+
     # 获取容器 IP
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
-    
+
     echo ""
     echo -e "${YELLOW}════════ 配置选项 ════════${NC}"
-    
+
     local openclaw_port="18789"
-    local openclaw_dir="/opt/openclaw"
-    
+
     echo -ne "网关端口 [${openclaw_port}]: "; read input_port
     openclaw_port=${input_port:-$openclaw_port}
-    
+
     echo ""
     echo -e "${YELLOW}开始安装 OpenClaw...${NC}"
     echo ""
-    
+
     # 1. 更新系统
-    echo -e "${CYAN}[1/9] 更新系统...${NC}"
+    echo -e "${CYAN}[1/5] 更新系统...${NC}"
     pct exec "$lxc_id" -- bash -lc "apt update -qq && apt upgrade -y -qq" > /dev/null 2>&1
     echo -e "${GREEN}  ✓ 系统更新完成${NC}"
-    
+
     # 2. 安装基础依赖
-    echo -e "${CYAN}[2/9] 安装基础依赖...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget git build-essential unzip" > /dev/null 2>&1
+    echo -e "${CYAN}[2/5] 安装基础依赖...${NC}"
+    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget build-essential python3 make g++ cmake" > /dev/null 2>&1
     echo -e "${GREEN}  ✓ 基础依赖安装完成${NC}"
-    
-    # 3. 安装 Node.js 24
-    echo -e "${CYAN}[3/9] 安装 Node.js 24...${NC}"
+
+    # 3. 安装 Node.js 22 LTS (与官方安装脚本一致)
+    echo -e "${CYAN}[3/5] 安装 Node.js 22 LTS...${NC}"
     pct exec "$lxc_id" -- bash -lc '
-        if ! command -v node &>/dev/null || [[ "$(node -v)" != v24* ]]; then
-            curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1
+        if ! command -v node &>/dev/null || [[ "$(node -v 2>/dev/null)" != v22* ]]; then
+            curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
             apt install -y -qq nodejs > /dev/null 2>&1
         fi
         echo "  ✓ Node.js $(node -v) 已安装"
     '
-    
-    # 4. 安装 pnpm
-    echo -e "${CYAN}[4/9] 安装 pnpm...${NC}"
+
+    # 4. 通过 npm 全局安装 OpenClaw (官方推荐方式)
+    echo -e "${CYAN}[4/5] 安装 OpenClaw...${NC}"
     pct exec "$lxc_id" -- bash -lc '
-        if ! command -v pnpm &>/dev/null; then
-            npm install -g pnpm > /dev/null 2>&1
+        export SHARP_IGNORE_GLOBAL_LIBVIPS=1
+        npm install -g --no-fund --no-audit openclaw@latest > /dev/null 2>&1
+        if command -v openclaw &>/dev/null; then
+            echo "  ✓ OpenClaw $(openclaw --version 2>/dev/null || echo "已安装") 已安装"
+        else
+            echo "  ✓ OpenClaw 已安装"
         fi
-        echo "  ✓ pnpm $(pnpm -v) 已安装"
     '
-    
-    # 5. 安装 Bun (构建需要)
-    echo -e "${CYAN}[5/9] 安装 Bun...${NC}"
+    local install_result=$?
+    if [[ $install_result -ne 0 ]]; then
+        echo -e "${RED}  ✗ OpenClaw 安装失败${NC}"
+        pause_func
+        return
+    fi
+
+    # 确保 openclaw 命令可用 (修复 npm 全局 bin 路径)
     pct exec "$lxc_id" -- bash -lc '
-        if ! command -v bun &>/dev/null; then
-            curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1
-            export PATH="$HOME/.bun/bin:$PATH"
-            echo "export PATH=\"\$HOME/.bun/bin:\$PATH\"" >> ~/.bashrc
+        npm_bin="$(npm prefix -g 2>/dev/null)/bin"
+        if [[ -n "$npm_bin" ]] && [[ -d "$npm_bin" ]]; then
+            if ! grep -q "$npm_bin" ~/.bashrc 2>/dev/null; then
+                echo "export PATH=\"\$PATH:$npm_bin\"" >> ~/.bashrc
+            fi
         fi
-        echo "  ✓ Bun $(~/.bun/bin/bun --version 2>/dev/null || echo "已安装") 已安装"
     '
-    
-    # 6. 克隆 OpenClaw 仓库
-    echo -e "${CYAN}[6/9] 克隆 OpenClaw 仓库...${NC}"
-    pct exec "$lxc_id" -- bash -lc "
-        if [[ -d '${openclaw_dir}' ]]; then
-            echo '  目录已存在，更新中...'
-            cd '${openclaw_dir}'
-            git pull > /dev/null 2>&1
-        else
-            git clone https://github.com/openclaw/openclaw.git '${openclaw_dir}' > /dev/null 2>&1
-        fi
-        echo '  ✓ 仓库克隆完成'
-    "
-    
-    # 7. 安装依赖
-    echo -e "${CYAN}[7/9] 安装项目依赖...${NC}"
-    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm install --frozen-lockfile" 2>&1 | grep -E "(Progress|ERR|error|failed)" | tail -5 || true
-    echo -e "${GREEN}  ✓ 依赖安装完成${NC}"
-    
-    # 8. 构建前端资源 (关键步骤)
-    echo -e "${CYAN}[8/9] 构建前端资源...${NC}"
-    pct exec "$lxc_id" -- bash -lc "
-        export PATH=\"\$HOME/.bun/bin:\$PATH\"
-        cd '${openclaw_dir}'
-        pnpm ui:build
-    " 2>&1 | grep -E "(building|built|error|ERR|failed|✓)" | tail -10 || true
-    
-    # 验证前端资源是否构建成功
-    local ui_check=$(pct exec "$lxc_id" -- bash -lc "ls -la '${openclaw_dir}/dist/control-ui/index.html' 2>/dev/null && echo 'EXISTS' || echo 'MISSING'")
-    if echo "$ui_check" | grep -q "EXISTS"; then
-        echo -e "${GREEN}  ✓ 前端资源构建成功${NC}"
-    else
-        echo -e "${YELLOW}  ⚠ 前端资源可能未正确构建，尝试重新构建...${NC}"
-        pct exec "$lxc_id" -- bash -lc "
-            export PATH=\"\$HOME/.bun/bin:\$PATH\"
-            cd '${openclaw_dir}'
-            pnpm ui:install
-            pnpm ui:build
-        " 2>&1 | tail -10
-        
-        # 再次检查
-        ui_check=$(pct exec "$lxc_id" -- bash -lc "ls -la '${openclaw_dir}/dist/control-ui/index.html' 2>/dev/null && echo 'EXISTS' || echo 'MISSING'")
-        if echo "$ui_check" | grep -q "EXISTS"; then
-            echo -e "${GREEN}  ✓ 前端资源构建成功${NC}"
-        else
-            echo -e "${RED}  ✗ 前端资源构建失败，请手动执行: cd ${openclaw_dir} && pnpm ui:build${NC}"
-        fi
-    fi
-    
-    # 9. 构建主项目
-    echo -e "${CYAN}[9/9] 构建主项目...${NC}"
-    pct exec "$lxc_id" -- bash -lc "
-        export PATH=\"\$HOME/.bun/bin:\$PATH\"
-        cd '${openclaw_dir}'
-        pnpm build:docker || pnpm build
-    " 2>&1 | grep -E "(building|built|error|ERR|failed)" | tail -5 || true
-    
-    # 验证主项目构建
-    if pct exec "$lxc_id" -- test -f "${openclaw_dir}/dist/index.js"; then
-        echo -e "${GREEN}  ✓ 主项目构建成功${NC}"
-    else
-        echo -e "${RED}  ✗ 主项目构建失败${NC}"
-    fi
-    
-    # 生成 Gateway Token
-    local gateway_token=$(pct exec "$lxc_id" -- bash -lc 'openssl rand -hex 32' 2>/dev/null)
-    if [[ -z "$gateway_token" ]]; then
-        gateway_token=$(openssl rand -hex 32)
-    fi
-    
-    # 创建配置目录
-    pct exec "$lxc_id" -- bash -lc "mkdir -p ~/.openclaw/workspace"
-    
-    # 创建启动脚本
-    echo -e "${CYAN}创建启动脚本...${NC}"
-    pct exec "$lxc_id" -- bash -c "cat > /usr/local/bin/openclaw" << 'EOF'
-#!/bin/bash
-export PATH="$HOME/.bun/bin:$PATH"
-cd /opt/openclaw
-exec node dist/index.js "$@"
-EOF
-    pct exec "$lxc_id" -- chmod +x /usr/local/bin/openclaw
-    
-    # 创建 systemd 服务
+
+    # 5. 运行 onboard 引导向导 (配置 API 密钥、生成 token、安装守护进程)
+    echo -e "${CYAN}[5/5] 运行 OpenClaw 引导向导...${NC}"
+    echo -e "${YELLOW}  注意: onboard 为交互式向导，请在容器终端中完成配置${NC}"
+    echo ""
+
+    # 创建 systemd 服务 (使用 openclaw CLI 命令)
     echo -e "${CYAN}创建系统服务...${NC}"
+    local openclaw_bin
+    openclaw_bin=$(pct exec "$lxc_id" -- bash -lc 'command -v openclaw 2>/dev/null' | tr -d '\r')
+    if [[ -z "$openclaw_bin" ]]; then
+        openclaw_bin="/usr/bin/openclaw"
+    fi
+
     pct exec "$lxc_id" -- bash -lc "
         cat > /etc/systemd/system/openclaw.service << SERVICE
 [Unit]
@@ -1539,11 +1475,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=${openclaw_dir}
 Environment=NODE_ENV=production
-Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=OPENCLAW_GATEWAY_TOKEN=${gateway_token}
-ExecStart=/usr/bin/node ${openclaw_dir}/dist/index.js gateway --bind lan --port ${openclaw_port}
+ExecStart=${openclaw_bin} gateway --bind lan --port ${openclaw_port}
 Restart=always
 RestartSec=10
 
@@ -1552,7 +1485,7 @@ WantedBy=multi-user.target
 SERVICE
         systemctl daemon-reload
     "
-    
+
     echo ""
     echo -e "${GREEN}════════ 安装完成 ════════${NC}"
     echo ""
@@ -1563,13 +1496,16 @@ SERVICE
         echo -e "  ${CYAN}http://<容器IP>:${openclaw_port}${NC}"
     fi
     echo ""
-    echo -e "${GREEN}Gateway Token:${NC}"
-    echo -e "  ${YELLOW}${gateway_token}${NC}"
+    echo -e "${YELLOW}首次使用请执行引导向导:${NC}"
+    echo -e "  ${CYAN}pct enter ${lxc_id}${NC}"
+    echo -e "  ${CYAN}openclaw onboard --install-daemon${NC}"
     echo ""
-    echo -e "${GREEN}安装目录: ${openclaw_dir}${NC}"
-    echo -e "${GREEN}配置目录: ~/.openclaw${NC}"
+    echo -e "${YELLOW}常用命令:${NC}"
+    echo -e "  ${CYAN}openclaw doctor${NC}              # 检查配置问题"
+    echo -e "  ${CYAN}openclaw status${NC}              # Gateway 状态"
+    echo -e "  ${CYAN}openclaw dashboard${NC}           # 打开控制面板"
     echo ""
-    echo -e "${YELLOW}启动命令:${NC}"
+    echo -e "${YELLOW}系统服务命令:${NC}"
     echo -e "  ${CYAN}systemctl start openclaw${NC}     # 启动服务"
     echo -e "  ${CYAN}systemctl enable openclaw${NC}    # 开机自启"
     echo -e "  ${CYAN}systemctl status openclaw${NC}    # 查看状态"
@@ -1578,20 +1514,15 @@ SERVICE
     echo -e "${YELLOW}手动启动:${NC}"
     echo -e "  ${CYAN}openclaw gateway --bind lan --port ${openclaw_port}${NC}"
     echo ""
-    echo -e "${YELLOW}运行引导向导:${NC}"
-    echo -e "  ${CYAN}openclaw onboard${NC}"
-    echo ""
-    
-    # 询问是否立即启动
-    echo -ne "${CYAN}是否立即启动 OpenClaw 服务? [Y/n]: ${NC}"
-    read start_now
-    if [[ "$start_now" != "n" && "$start_now" != "N" ]]; then
-        pct exec "$lxc_id" -- bash -lc "systemctl start openclaw && systemctl enable openclaw"
-        echo -e "${GREEN}服务已启动${NC}"
-        sleep 2
-        pct exec "$lxc_id" -- bash -lc "systemctl status openclaw --no-pager" | head -10
+
+    # 询问是否立即运行 onboard
+    echo -ne "${CYAN}是否立即运行 onboard 引导向导? [Y/n]: ${NC}"
+    read run_onboard
+    if [[ "$run_onboard" != "n" && "$run_onboard" != "N" ]]; then
+        echo -e "${YELLOW}正在进入容器运行 onboard，请在容器内完成配置...${NC}"
+        pct exec "$lxc_id" -- bash -lc "openclaw onboard --install-daemon"
     fi
-    
+
     pause_func
 }
 
@@ -1600,31 +1531,31 @@ install_openclaw_docker() {
     clear
     echo -e "${BLUE}════════ OpenClaw Docker 安装 ════════${NC}"
     echo ""
-    
+
     pct list
     echo ""
     echo -ne "选择 LXC 容器 ID: "; read lxc_id
-    
+
     if [[ -z "$lxc_id" ]]; then
         echo -e "${RED}错误: 请输入容器 ID${NC}"
         pause_func
         return
     fi
-    
+
     # 检查容器是否存在
     if ! pct status "$lxc_id" &>/dev/null; then
         echo -e "${RED}错误: 容器 $lxc_id 不存在${NC}"
         pause_func
         return
     fi
-    
+
     # 检查容器是否运行
     if ! pct status "$lxc_id" | grep -q "running"; then
         echo -e "${YELLOW}容器未运行，正在启动...${NC}"
         pct start "$lxc_id"
         sleep 3
     fi
-    
+
     # 检查 Docker 环境
     echo ""
     echo -e "${YELLOW}检查 Docker 环境...${NC}"
@@ -1636,45 +1567,45 @@ install_openclaw_docker() {
         pause_func
         return
     fi
-    
+
     echo -e "${GREEN}Docker 环境已就绪${NC}"
-    
+
     # 获取容器 IP 用于显示
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
-    
+
     echo ""
     echo -e "${YELLOW}════════ 配置 OpenClaw ════════${NC}"
-    
+
     # 默认配置
     local openclaw_port="18789"
-    local openclaw_bridge_port="18790"
+    local openclaw_dir="/opt/openclaw"
     local openclaw_config_dir="/opt/openclaw/config"
     local openclaw_workspace_dir="/opt/openclaw/workspace"
-    
+
     echo -ne "网关端口 [${openclaw_port}]: "; read input_port
     openclaw_port=${input_port:-$openclaw_port}
-    
-    echo -ne "桥接端口 [${openclaw_bridge_port}]: "; read input_bridge_port
-    openclaw_bridge_port=${input_bridge_port:-$openclaw_bridge_port}
-    
+
     echo -ne "配置目录 [${openclaw_config_dir}]: "; read input_config
     openclaw_config_dir=${input_config:-$openclaw_config_dir}
-    
+
     echo -ne "工作目录 [${openclaw_workspace_dir}]: "; read input_workspace
     openclaw_workspace_dir=${input_workspace:-$openclaw_workspace_dir}
-    
+
     echo ""
     echo -e "${YELLOW}正在安装 OpenClaw...${NC}"
-    
-    # 创建目录
-    pct exec "$lxc_id" -- mkdir -p "$openclaw_config_dir" "$openclaw_workspace_dir"
-    
+
+    # 创建目录并设置正确的权限 (Docker 镜像以 node 用户 uid 1000 运行)
+    pct exec "$lxc_id" -- bash -lc "
+        mkdir -p '${openclaw_dir}' '${openclaw_config_dir}' '${openclaw_workspace_dir}'
+        chown -R 1000:1000 '${openclaw_config_dir}' '${openclaw_workspace_dir}'
+    "
+
     # 检查是否已存在 openclaw 容器
     if pct exec "$lxc_id" -- docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^openclaw-gateway$'; then
         echo -e "${YELLOW}检测到已存在 OpenClaw 容器，正在移除...${NC}"
         pct exec "$lxc_id" -- docker rm -f openclaw-gateway openclaw-cli 2>/dev/null
     fi
-    
+
     # 获取 Docker Compose 命令
     local compose_cmd=$(get_compose_cmd "$lxc_id")
     if [[ -z "$compose_cmd" ]]; then
@@ -1682,9 +1613,15 @@ install_openclaw_docker() {
         pause_func
         return
     fi
-    
-    # 创建 docker-compose.yml 文件
-    local compose_file="/tmp/openclaw-docker-compose.yml"
+
+    # 生成 Gateway Token
+    local gateway_token=$(pct exec "$lxc_id" -- bash -lc 'openssl rand -hex 32' 2>/dev/null)
+    if [[ -z "$gateway_token" ]]; then
+        gateway_token=$(openssl rand -hex 32)
+    fi
+
+    # 创建 docker-compose.yml 文件 (持久化到 /opt/openclaw/)
+    local compose_file="${openclaw_dir}/docker-compose.yml"
     pct exec "$lxc_id" -- bash -c "cat > $compose_file" << EOF
 services:
   openclaw-gateway:
@@ -1694,16 +1631,12 @@ services:
       TERM: xterm-256color
       OPENCLAW_GATEWAY_TOKEN: \${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: \${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
-      CLAUDE_AI_SESSION_KEY: \${CLAUDE_AI_SESSION_KEY:-}
-      CLAUDE_WEB_SESSION_KEY: \${CLAUDE_WEB_SESSION_KEY:-}
-      CLAUDE_WEB_COOKIE: \${CLAUDE_WEB_COOKIE:-}
       TZ: \${OPENCLAW_TZ:-UTC}
     volumes:
       - ${openclaw_config_dir}:/home/node/.openclaw
       - ${openclaw_workspace_dir}:/home/node/.openclaw/workspace
     ports:
       - "${openclaw_port}:18789"
-      - "${openclaw_bridge_port}:18790"
     init: true
     restart: unless-stopped
     command:
@@ -1743,9 +1676,6 @@ services:
       OPENCLAW_GATEWAY_TOKEN: \${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: \${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
       BROWSER: echo
-      CLAUDE_AI_SESSION_KEY: \${CLAUDE_AI_SESSION_KEY:-}
-      CLAUDE_WEB_SESSION_KEY: \${CLAUDE_WEB_SESSION_KEY:-}
-      CLAUDE_WEB_COOKIE: \${CLAUDE_WEB_COOKIE:-}
       TZ: \${OPENCLAW_TZ:-UTC}
     volumes:
       - ${openclaw_config_dir}:/home/node/.openclaw
@@ -1757,21 +1687,37 @@ services:
     depends_on:
       - openclaw-gateway
 EOF
-    
-    # 创建 .env 文件
-    pct exec "$lxc_id" -- bash -c "cat > /tmp/openclaw.env" << EOF
-OPENCLAW_GATEWAY_TOKEN=
+
+    # 创建 .env 文件 (持久化到 /opt/openclaw/)
+    local env_file="${openclaw_dir}/.env"
+    pct exec "$lxc_id" -- bash -c "cat > $env_file" << EOF
+OPENCLAW_GATEWAY_TOKEN=${gateway_token}
 OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=
-CLAUDE_AI_SESSION_KEY=
-CLAUDE_WEB_SESSION_KEY=
-CLAUDE_WEB_COOKIE=
-OPENCLAW_TZ=UTC
+OPENCLAW_TZ=Asia/Shanghai
 EOF
-    
+
     # 启动服务
     echo ""
     echo -e "${YELLOW}启动 OpenClaw 服务...${NC}"
-    if pct exec "$lxc_id" -- bash -lc "cd /tmp && $compose_cmd --env-file /tmp/openclaw.env -f $compose_file up -d" 2>&1; then
+    if pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && $compose_cmd --env-file '${env_file}' -f '${compose_file}' up -d" 2>&1; then
+        echo -e "${GREEN}  ✓ 容器已启动${NC}"
+
+        # 等待服务就绪
+        echo -ne "${CYAN}等待 Gateway 就绪...${NC}"
+        local wait_count=0
+        while [[ $wait_count -lt 15 ]]; do
+            if pct exec "$lxc_id" -- bash -lc "curl -fsS http://127.0.0.1:${openclaw_port}/healthz 2>/dev/null" &>/dev/null; then
+                echo -e "${GREEN} ✓${NC}"
+                break
+            fi
+            echo -ne "."
+            sleep 2
+            wait_count=$((wait_count + 1))
+        done
+        if [[ $wait_count -ge 15 ]]; then
+            echo -e "${YELLOW} ⚠ 超时，请手动检查服务状态${NC}"
+        fi
+
         echo ""
         echo -e "${GREEN}════════ 安装完成 ════════${NC}"
         echo ""
@@ -1782,20 +1728,29 @@ EOF
             echo -e "  ${CYAN}http://<容器IP>:${openclaw_port}${NC}"
         fi
         echo ""
-        echo -e "${YELLOW}配置目录: ${openclaw_config_dir}${NC}"
-        echo -e "${YELLOW}工作目录: ${openclaw_workspace_dir}${NC}"
+        echo -e "${GREEN}Gateway Token:${NC}"
+        echo -e "  ${YELLOW}${gateway_token}${NC}"
         echo ""
-        echo -e "${CYAN}容器内配置路径: /home/node/.openclaw${NC}"
-        echo -e "${CYAN}容器内工作路径: /home/node/.openclaw/workspace${NC}"
+        echo -e "${YELLOW}配置目录:${NC} ${openclaw_config_dir}"
+        echo -e "${YELLOW}工作目录:${NC} ${openclaw_workspace_dir}"
+        echo -e "${YELLOW}Compose 文件:${NC} ${compose_file}"
         echo ""
-        echo -e "${RED}重要提示:${NC}"
-        echo -e "${RED}  1. 首次访问需要完成 OpenClaw 引导设置${NC}"
-        echo -e "${RED}  2. 请设置 OPENCLAW_GATEWAY_TOKEN 以确保安全访问${NC}"
-        echo -e "${RED}  3. 可通过 docker compose logs 查看日志${NC}"
+        echo -e "${YELLOW}首次使用请运行引导向导:${NC}"
+        echo -e "  ${CYAN}pct exec ${lxc_id} -- docker compose -f ${compose_file} run --rm openclaw-cli onboard${NC}"
+        echo ""
+        echo -e "${YELLOW}常用命令:${NC}"
+        echo -e "  ${CYAN}openclaw doctor${NC}              # 检查配置问题"
+        echo -e "  ${CYAN}openclaw status${NC}              # Gateway 状态"
+        echo ""
+        echo -e "${YELLOW}Docker 管理命令:${NC}"
+        echo -e "  ${CYAN}cd ${openclaw_dir} && $compose_cmd down${NC}     # 停止服务"
+        echo -e "  ${CYAN}cd ${openclaw_dir} && $compose_cmd up -d${NC}    # 启动服务"
+        echo -e "  ${CYAN}cd ${openclaw_dir} && $compose_cmd logs -f${NC}  # 查看日志"
+        echo ""
     else
         echo -e "${RED}安装失败${NC}"
     fi
-    
+
     pause_func
 }
 
