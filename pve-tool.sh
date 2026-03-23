@@ -1408,14 +1408,16 @@ install_openclaw_native() {
     # 0. 检测是否需要使用国内镜像加速
     local npm_mirror=""
     local nodesource_mirror=""
-    pct exec "$lxc_id" -- bash -lc '
-        # 测试到 GitHub 的连通性，判断是否需要加速
+    local need_mirror=0
+    local mirror_check
+    mirror_check=$(pct exec "$lxc_id" -- bash -lc '
         if ! curl -fsSL --connect-timeout 5 https://registry.npmjs.org/ > /dev/null 2>&1; then
             echo "NEED_MIRROR"
         fi
-    ' > /tmp/openclaw_mirror_check 2>/dev/null
-    local need_mirror=$(cat /tmp/openclaw_mirror_check 2>/dev/null | grep -c "NEED_MIRROR" || echo "0")
-    rm -f /tmp/openclaw_mirror_check
+    ' 2>/dev/null | tr -d '\r')
+    if echo "$mirror_check" | grep -q "NEED_MIRROR"; then
+        need_mirror=1
+    fi
 
     if [[ "$need_mirror" -gt 0 ]]; then
         npm_mirror="https://registry.npmmirror.com"
