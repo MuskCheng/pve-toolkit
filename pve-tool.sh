@@ -1520,15 +1520,13 @@ install_openclaw_native() {
     
     # 创建启动脚本
     echo -e "${CYAN}创建启动脚本...${NC}"
-    pct exec "$lxc_id" -- bash -lc "
-        cat > /usr/local/bin/openclaw << 'SCRIPT'
+    pct exec "$lxc_id" -- bash -c "cat > /usr/local/bin/openclaw" << 'EOF'
 #!/bin/bash
-export PATH=\"\$HOME/.bun/bin:\$PATH\"
-cd ${openclaw_dir}
-node dist/index.js \"\\\$@\"
-SCRIPT
-        chmod +x /usr/local/bin/openclaw
-    "
+export PATH="$HOME/.bun/bin:$PATH"
+cd /opt/openclaw
+exec node dist/index.js "$@"
+EOF
+    pct exec "$lxc_id" -- chmod +x /usr/local/bin/openclaw
     
     # 创建 systemd 服务
     echo -e "${CYAN}创建系统服务...${NC}"
