@@ -1429,12 +1429,12 @@ install_openclaw_native() {
 
     # 1. 更新系统
     echo -e "${CYAN}[1/5] 更新系统...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt update -qq > /dev/null 2>&1"
+    pct exec "$lxc_id" -- bash -lc "apt update -qq 2>&1"
     echo -e "${GREEN}  ✓ 系统更新完成${NC}"
 
     # 2. 安装基础依赖
     echo -e "${CYAN}[2/5] 安装基础依赖...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget build-essential python3 make g++ cmake" > /dev/null 2>&1
+    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget build-essential python3 make g++ cmake 2>&1"
     echo -e "${GREEN}  ✓ 基础依赖安装完成${NC}"
 
     # 3. 安装 Node.js 22 LTS (与官方安装脚本一致)
@@ -1442,25 +1442,27 @@ install_openclaw_native() {
     pct exec "$lxc_id" -- bash -lc "
         if ! command -v node &>/dev/null || [[ \"\$(node -v 2>/dev/null)\" != v22* ]]; then
             if [[ -n '${nodesource_mirror}' ]]; then
-                # 使用 npmmirror 镜像加速 NodeSource
-                curl -fsSL '${nodesource_mirror}/setup_22.x' | bash - > /dev/null 2>&1 || \
-                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+                echo '  使用 npmmirror 镜像安装 NodeSource...'
+                curl -fsSL '${nodesource_mirror}/setup_22.x' | bash - 2>&1 || \
+                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1
             else
-                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1
             fi
-            apt install -y -qq nodejs > /dev/null 2>&1
+            apt install -y -qq nodejs 2>&1
         fi
         echo \"  ✓ Node.js \$(node -v) 已安装\"
     "
 
     # 4. 通过 npm 全局安装 OpenClaw (官方推荐方式)
     echo -e "${CYAN}[4/5] 安装 OpenClaw...${NC}"
+    echo -e "${YELLOW}  这一步可能需要几分钟，请耐心等待...${NC}"
     pct exec "$lxc_id" -- bash -lc "
         export SHARP_IGNORE_GLOBAL_LIBVIPS=1
         if [[ -n '${npm_mirror}' ]]; then
+            echo '  使用 npmmirror 镜像加速 npm...'
             npm config set registry '${npm_mirror}' > /dev/null 2>&1
         fi
-        npm install -g --no-fund --no-audit openclaw@latest > /dev/null 2>&1
+        npm install -g --no-fund --no-audit openclaw@latest 2>&1
         if [[ -n '${npm_mirror}' ]]; then
             npm config set registry https://registry.npmjs.org/ > /dev/null 2>&1
         fi
