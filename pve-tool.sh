@@ -1416,27 +1416,10 @@ install_openclaw_native() {
         echo "export LANG=C" >> /etc/environment
     ' > /dev/null 2>&1
 
-    # 0. 检测是否需要使用国内镜像加速
-    local npm_mirror=""
-    local nodesource_mirror=""
-    local need_mirror=0
-    local mirror_check
-    mirror_check=$(pct exec "$lxc_id" -- bash -lc '
-        if ! curl -fsSL --connect-timeout 5 https://registry.npmjs.org/ > /dev/null 2>&1; then
-            echo "NEED_MIRROR"
-        fi
-    ' 2>/dev/null | tr -d '\r')
-    if echo "$mirror_check" | grep -q "NEED_MIRROR"; then
-        need_mirror=1
-    fi
-
-    if [[ "$need_mirror" -gt 0 ]]; then
-        npm_mirror="https://registry.npmmirror.com"
-        nodesource_mirror="https://npmmirror.com/mirrors/nodesource"
-        echo -e "${CYAN}  检测到网络环境较慢，已启用国内镜像加速${NC}"
-    else
-        echo -e "${CYAN}  网络环境正常，使用默认源${NC}"
-    fi
+    # 直接使用国内镜像源加速
+    local npm_mirror="https://registry.npmmirror.com"
+    local nodesource_mirror="1"
+    echo -e "${CYAN}  已启用国内镜像加速 (npmmirror + USTC)${NC}"
 
     # 1. 更新系统
     echo -e "${CYAN}[1/4] 更新系统...${NC}"
@@ -1456,17 +1439,15 @@ install_openclaw_native() {
             # 运行 NodeSource setup 脚本配置仓库
             curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1
 
-            # 如检测到需要镜像，将 NodeSource 源替换为中科大镜像
-            if [[ -n '${nodesource_mirror}' ]]; then
-                echo '  替换 NodeSource 仓库为中科大镜像...'
-                for f in /etc/apt/sources.list.d/nodesource*.list; do
-                    if [[ -f \"\$f\" ]]; then
-                        sed -i 's|deb.nodesource.com|mirrors.ustc.edu.cn/nodesource/deb|g' \"\$f\" 2>/dev/null
-                        sed -i 's|rpm.nodesource.com|mirrors.ustc.edu.cn/nodesource/rpm|g' \"\$f\" 2>/dev/null
-                    fi
-                done
-                apt update -qq 2>&1 | tail -1
-            fi
+            # 将 NodeSource 源替换为中科大镜像
+            echo '  替换 NodeSource 仓库为中科大镜像...'
+            for f in /etc/apt/sources.list.d/nodesource*.list; do
+                if [[ -f \"\$f\" ]]; then
+                    sed -i 's|deb.nodesource.com|mirrors.ustc.edu.cn/nodesource/deb|g' \"\$f\" 2>/dev/null
+                    sed -i 's|rpm.nodesource.com|mirrors.ustc.edu.cn/nodesource/rpm|g' \"\$f\" 2>/dev/null
+                fi
+            done
+            apt update -qq 2>&1 | tail -1
 
             apt install -y -qq nodejs 2>&1
         fi
@@ -1479,19 +1460,32 @@ install_openclaw_native() {
     pct exec "$lxc_id" -- bash -lc "
         export LC_ALL=C LANG=C
         export SHARP_IGNORE_GLOBAL_LIBVIPS=1
-        if [[ -n '${npm_mirror}' ]]; then
-            echo '  使用 npmmirror 镜像加速 npm...'
-            npm config set registry '${npm_mirror}' > /dev/null 2>&1
-        fi
-        if ! npm install -g --no-fund --no-audit openclaw@latest 2>&1; then
+
+        # 配置 npm 国内镜像源
+        echo '  npm registry: registry.npmmirror.com'
+        npm config set registry '${npm_mirror}' > /dev/null 2>&1
+
+        # 带进度输出的 npm 安装
+        echo -n '  正在下载 openclaw 包'
+        npm install -g --no-fund --no-audit openclaw@latest &
+        npm_pid=\$!
+        while kill -0 \$npm_pid 2>/dev/null; do
+            echo -n '.'
+            sleep 3
+        done
+        wait \$npm_pid
+        npm_status=\$?
+        echo ''
+
+        if [[ \$npm_status -ne 0 ]]; then
             echo '  npm 安装失败，尝试安装编译工具链后重试...'
-            export LC_ALL=C LANG=C
             apt install -y -qq build-essential python3 make g++ cmake 2>&1
             npm install -g --no-fund --no-audit openclaw@latest 2>&1
         fi
-        if [[ -n '${npm_mirror}' ]]; then
-            npm config set registry https://registry.npmjs.org/ > /dev/null 2>&1
-        fi
+
+        # 恢复默认 npm registry
+        npm config set registry https://registry.npmjs.org/ > /dev/null 2>&1
+
         if command -v openclaw &>/dev/null; then
             echo \"  ✓ OpenClaw \$(openclaw --version 2>/dev/null || echo \"已安装\") 已安装\"
         else
