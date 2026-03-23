@@ -1465,17 +1465,9 @@ install_openclaw_native() {
         echo '  npm registry: registry.npmmirror.com'
         npm config set registry '${npm_mirror}' > /dev/null 2>&1
 
-        # 带进度输出的 npm 安装
-        echo -n '  正在下载 openclaw 包'
-        npm install -g --no-fund --no-audit openclaw@latest &
-        npm_pid=\$!
-        while kill -0 \$npm_pid 2>/dev/null; do
-            echo -n '.'
-            sleep 3
-        done
-        wait \$npm_pid
+        # 安装 openclaw (显示完整输出以便排查)
+        npm install -g --no-fund --no-audit openclaw@latest 2>&1
         npm_status=\$?
-        echo ''
 
         if [[ \$npm_status -ne 0 ]]; then
             echo '  npm 安装失败，尝试安装编译工具链后重试...'
