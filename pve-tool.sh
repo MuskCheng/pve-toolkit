@@ -1437,17 +1437,25 @@ install_openclaw_native() {
     pct exec "$lxc_id" -- bash -lc "apt install -y -qq --no-install-recommends curl wget ca-certificates 2>&1"
     echo -e "${GREEN}  ✓ 基础依赖安装完成${NC}"
 
-    # 3. 安装 Node.js 22 LTS (与官方安装脚本一致)
+    # 3. 安装 Node.js 22 LTS
     echo -e "${CYAN}[3/4] 安装 Node.js 22 LTS...${NC}"
     pct exec "$lxc_id" -- bash -lc "
         if ! command -v node &>/dev/null || [[ \"\$(node -v 2>/dev/null)\" != v22* ]]; then
+            # 运行 NodeSource setup 脚本配置仓库
+            curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1
+
+            # 如检测到需要镜像，将 NodeSource 源替换为中科大镜像
             if [[ -n '${nodesource_mirror}' ]]; then
-                echo '  使用 npmmirror 镜像安装 NodeSource...'
-                curl -fsSL '${nodesource_mirror}/setup_22.x' | bash - 2>&1 || \
-                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1
-            else
-                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1
+                echo '  替换 NodeSource 仓库为中科大镜像...'
+                for f in /etc/apt/sources.list.d/nodesource*.list; do
+                    if [[ -f \"\$f\" ]]; then
+                        sed -i 's|deb.nodesource.com|mirrors.ustc.edu.cn/nodesource/deb|g' \"\$f\" 2>/dev/null
+                        sed -i 's|rpm.nodesource.com|mirrors.ustc.edu.cn/nodesource/rpm|g' \"\$f\" 2>/dev/null
+                    fi
+                done
+                apt update -qq 2>&1 | tail -1
             fi
+
             apt install -y -qq nodejs 2>&1
         fi
         echo \"  ✓ Node.js \$(node -v) 已安装\"
