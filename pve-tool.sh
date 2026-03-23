@@ -1428,17 +1428,17 @@ install_openclaw_native() {
     fi
 
     # 1. 更新系统
-    echo -e "${CYAN}[1/5] 更新系统...${NC}"
+    echo -e "${CYAN}[1/4] 更新系统...${NC}"
     pct exec "$lxc_id" -- bash -lc "apt update -qq 2>&1"
     echo -e "${GREEN}  ✓ 系统更新完成${NC}"
 
-    # 2. 安装基础依赖
-    echo -e "${CYAN}[2/5] 安装基础依赖...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget build-essential python3 make g++ cmake 2>&1"
+    # 2. 安装基础依赖 (仅运行时必要组件，不含编译工具链以加速)
+    echo -e "${CYAN}[2/4] 安装基础依赖...${NC}"
+    pct exec "$lxc_id" -- bash -lc "apt install -y -qq --no-install-recommends curl wget ca-certificates 2>&1"
     echo -e "${GREEN}  ✓ 基础依赖安装完成${NC}"
 
     # 3. 安装 Node.js 22 LTS (与官方安装脚本一致)
-    echo -e "${CYAN}[3/5] 安装 Node.js 22 LTS...${NC}"
+    echo -e "${CYAN}[3/4] 安装 Node.js 22 LTS...${NC}"
     pct exec "$lxc_id" -- bash -lc "
         if ! command -v node &>/dev/null || [[ \"\$(node -v 2>/dev/null)\" != v22* ]]; then
             if [[ -n '${nodesource_mirror}' ]]; then
@@ -1454,7 +1454,7 @@ install_openclaw_native() {
     "
 
     # 4. 通过 npm 全局安装 OpenClaw (官方推荐方式)
-    echo -e "${CYAN}[4/5] 安装 OpenClaw...${NC}"
+    echo -e "${CYAN}[4/4] 安装 OpenClaw...${NC}"
     echo -e "${YELLOW}  这一步可能需要几分钟，请耐心等待...${NC}"
     pct exec "$lxc_id" -- bash -lc "
         export SHARP_IGNORE_GLOBAL_LIBVIPS=1
@@ -1462,7 +1462,11 @@ install_openclaw_native() {
             echo '  使用 npmmirror 镜像加速 npm...'
             npm config set registry '${npm_mirror}' > /dev/null 2>&1
         fi
-        npm install -g --no-fund --no-audit openclaw@latest 2>&1
+        if ! npm install -g --no-fund --no-audit openclaw@latest 2>&1; then
+            echo '  npm 安装失败，尝试安装编译工具链后重试...'
+            apt install -y -qq build-essential python3 make g++ cmake 2>&1
+            npm install -g --no-fund --no-audit openclaw@latest 2>&1
+        fi
         if [[ -n '${npm_mirror}' ]]; then
             npm config set registry https://registry.npmjs.org/ > /dev/null 2>&1
         fi
@@ -1489,8 +1493,8 @@ install_openclaw_native() {
         fi
     '
 
-    # 5. 运行 onboard 引导向导 (配置 API 密钥、生成 token、安装守护进程)
-    echo -e "${CYAN}[5/5] 运行 OpenClaw 引导向导...${NC}"
+    # 运行 onboard 引导向导 (配置 API 密钥、生成 token、安装守护进程)
+    echo -e "${CYAN}运行 OpenClaw 引导向导...${NC}"
     echo -e "${YELLOW}  注意: onboard 为交互式向导，请在容器终端中完成配置${NC}"
     echo ""
 
