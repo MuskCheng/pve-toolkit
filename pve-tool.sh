@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.8.0"
+    VERSION="V0.9.0"
 fi
 
 # 查询 GitHub 最新版本（支持国内镜像加速）
@@ -284,6 +284,7 @@ lxc_menu() {
         echo -e "  ${GREEN}[3]${NC} 删除容器"
         echo -e "  ${GREEN}[4]${NC} 容器操作"
         echo -e "  ${GREEN}[5]${NC} Docker 管理"
+        echo -e "  ${GREEN}[6]${NC} 应用安装"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -393,7 +394,33 @@ lxc_menu() {
                 ;;
             4) lxc_operate_menu ;;
             5) docker_menu ;;
+            6) app_install_menu ;;
             0) break ;;
+        esac
+    done
+}
+
+# 应用安装菜单
+app_install_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}════════ 应用安装 ════════${NC}"
+        echo -e "${YELLOW}在 LXC 容器中安装常用应用${NC}"
+        echo ""
+        echo -e "  ${GREEN}[1]${NC} 安装 OpenClaw (AI 助手)"
+        echo -e "  ${GREEN}[2]${NC} 安装 Lucky 大吉 (反向代理)"
+        echo -e "  ${GREEN}[3]${NC} 安装 DPanel 面板 (Docker 管理)"
+        echo -e "  ${GREEN}[0]${NC} 返回"
+        echo -ne "${CYAN}选择: ${NC}"
+        read c
+        echo
+        
+        case "$c" in
+            1) install_openclaw ;;
+            2) install_lucky ;;
+            3) install_dpanel ;;
+            0) break ;;
+            *) echo -e "${RED}无效选择${NC}"; sleep 1 ;;
         esac
     done
 }
@@ -1315,6 +1342,210 @@ install_openclaw() {
     clear
     echo -e "${BLUE}════════ OpenClaw 安装 ════════${NC}"
     echo -e "${YELLOW}OpenClaw - 个人 AI 助手，支持多种消息平台${NC}"
+    echo -e "${CYAN}支持 WhatsApp, Telegram, Slack, Discord 等 20+ 消息平台${NC}"
+    echo ""
+    
+    # 选择安装方式
+    echo -e "${YELLOW}选择安装方式:${NC}"
+    echo -e "  ${GREEN}[1]${NC} 原生安装 (推荐，直接在容器内运行)"
+    echo -e "  ${GREEN}[2]${NC} Docker 安装 (使用 Docker Compose)"
+    echo -ne "${CYAN}选择 [1]: ${NC}"
+    read install_method
+    install_method=${install_method:-1}
+    
+    if [[ "$install_method" == "2" ]]; then
+        install_openclaw_docker
+    else
+        install_openclaw_native
+    fi
+}
+
+# OpenClaw 原生安装 (推荐方式)
+install_openclaw_native() {
+    clear
+    echo -e "${BLUE}════════ OpenClaw 原生安装 ════════${NC}"
+    echo ""
+    
+    pct list
+    echo ""
+    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    
+    if [[ -z "$lxc_id" ]]; then
+        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        pause_func
+        return
+    fi
+    
+    # 检查容器是否存在
+    if ! pct status "$lxc_id" &>/dev/null; then
+        echo -e "${RED}错误: 容器 $lxc_id 不存在${NC}"
+        pause_func
+        return
+    fi
+    
+    # 检查容器是否运行
+    if ! pct status "$lxc_id" | grep -q "running"; then
+        echo -e "${YELLOW}容器未运行，正在启动...${NC}"
+        pct start "$lxc_id"
+        sleep 3
+    fi
+    
+    # 获取容器 IP
+    local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
+    
+    echo ""
+    echo -e "${YELLOW}════════ 配置选项 ════════${NC}"
+    
+    local openclaw_port="18789"
+    local openclaw_dir="/opt/openclaw"
+    
+    echo -ne "网关端口 [${openclaw_port}]: "; read input_port
+    openclaw_port=${input_port:-$openclaw_port}
+    
+    echo ""
+    echo -e "${YELLOW}开始安装 OpenClaw...${NC}"
+    echo ""
+    
+    # 1. 更新系统
+    echo -e "${CYAN}[1/8] 更新系统...${NC}"
+    pct exec "$lxc_id" -- bash -lc "apt update -qq && apt upgrade -y -qq" 2>&1 | tail -1
+    
+    # 2. 安装基础依赖
+    echo -e "${CYAN}[2/8] 安装基础依赖...${NC}"
+    pct exec "$lxc_id" -- bash -lc "apt install -y -qq curl wget git build-essential" 2>&1 | tail -1
+    
+    # 3. 安装 Node.js 24
+    echo -e "${CYAN}[3/8] 安装 Node.js 24...${NC}"
+    pct exec "$lxc_id" -- bash -lc '
+        if ! command -v node &>/dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+            apt install -y -qq nodejs
+        else
+            echo "Node.js 已安装: $(node -v)"
+        fi
+    ' 2>&1 | tail -3
+    
+    # 4. 安装 pnpm
+    echo -e "${CYAN}[4/8] 安装 pnpm...${NC}"
+    pct exec "$lxc_id" -- bash -lc '
+        if ! command -v pnpm &>/dev/null; then
+            npm install -g pnpm
+        fi
+        echo "pnpm $(pnpm -v) 已安装"
+    ' 2>&1 | tail -1
+    
+    # 5. 克隆 OpenClaw 仓库
+    echo -e "${CYAN}[5/8] 克隆 OpenClaw 仓库...${NC}"
+    pct exec "$lxc_id" -- bash -lc "
+        if [[ -d '${openclaw_dir}' ]]; then
+            echo '目录已存在，更新中...'
+            cd '${openclaw_dir}'
+            git pull
+        else
+            git clone https://github.com/openclaw/openclaw.git '${openclaw_dir}'
+        fi
+    " 2>&1 | tail -3
+    
+    # 6. 安装依赖并构建
+    echo -e "${CYAN}[6/8] 安装依赖...${NC}"
+    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm install" 2>&1 | tail -3
+    
+    echo -e "${CYAN}[7/8] 构建前端资源...${NC}"
+    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm ui:build" 2>&1 | tail -5
+    
+    echo -e "${CYAN}[8/8] 构建主项目...${NC}"
+    pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && pnpm build" 2>&1 | tail -3
+    
+    # 生成 Gateway Token
+    local gateway_token=$(pct exec "$lxc_id" -- bash -lc 'openssl rand -hex 32' 2>/dev/null)
+    if [[ -z "$gateway_token" ]]; then
+        gateway_token=$(openssl rand -hex 32)
+    fi
+    
+    # 创建启动脚本
+    echo -e "${CYAN}创建启动脚本...${NC}"
+    pct exec "$lxc_id" -- bash -lc "
+        cat > /usr/local/bin/openclaw << 'SCRIPT'
+#!/bin/bash
+cd ${openclaw_dir}
+node dist/index.js \"\\\$@\"
+SCRIPT
+        chmod +x /usr/local/bin/openclaw
+    "
+    
+    # 创建 systemd 服务
+    echo -e "${CYAN}创建系统服务...${NC}"
+    pct exec "$lxc_id" -- bash -lc "
+        cat > /etc/systemd/system/openclaw.service << SERVICE
+[Unit]
+Description=OpenClaw Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${openclaw_dir}
+Environment=NODE_ENV=production
+Environment=OPENCLAW_GATEWAY_TOKEN=${gateway_token}
+ExecStart=/usr/bin/node ${openclaw_dir}/dist/index.js gateway --bind lan --port ${openclaw_port}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+        systemctl daemon-reload
+    "
+    
+    # 创建配置目录
+    pct exec "$lxc_id" -- bash -lc "mkdir -p ~/.openclaw/workspace"
+    
+    echo ""
+    echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+    echo ""
+    echo -e "${GREEN}访问地址:${NC}"
+    if [[ -n "$container_ip" ]]; then
+        echo -e "  ${CYAN}http://${container_ip}:${openclaw_port}${NC}"
+    else
+        echo -e "  ${CYAN}http://<容器IP>:${openclaw_port}${NC}"
+    fi
+    echo ""
+    echo -e "${GREEN}Gateway Token:${NC}"
+    echo -e "  ${YELLOW}${gateway_token}${NC}"
+    echo ""
+    echo -e "${GREEN}安装目录: ${openclaw_dir}${NC}"
+    echo -e "${GREEN}配置目录: ~/.openclaw${NC}"
+    echo ""
+    echo -e "${YELLOW}启动命令:${NC}"
+    echo -e "  ${CYAN}systemctl start openclaw${NC}     # 启动服务"
+    echo -e "  ${CYAN}systemctl enable openclaw${NC}    # 开机自启"
+    echo -e "  ${CYAN}systemctl status openclaw${NC}    # 查看状态"
+    echo -e "  ${CYAN}journalctl -u openclaw -f${NC}   # 查看日志"
+    echo ""
+    echo -e "${YELLOW}手动启动:${NC}"
+    echo -e "  ${CYAN}openclaw gateway --bind lan --port ${openclaw_port}${NC}"
+    echo ""
+    echo -e "${YELLOW}运行引导向导:${NC}"
+    echo -e "  ${CYAN}openclaw onboard${NC}"
+    echo ""
+    
+    # 询问是否立即启动
+    echo -ne "${CYAN}是否立即启动 OpenClaw 服务? [Y/n]: ${NC}"
+    read start_now
+    if [[ "$start_now" != "n" && "$start_now" != "N" ]]; then
+        pct exec "$lxc_id" -- bash -lc "systemctl start openclaw && systemctl enable openclaw"
+        echo -e "${GREEN}服务已启动${NC}"
+        sleep 2
+        pct exec "$lxc_id" -- bash -lc "systemctl status openclaw --no-pager" | head -10
+    fi
+    
+    pause_func
+}
+
+# OpenClaw Docker 安装
+install_openclaw_docker() {
+    clear
+    echo -e "${BLUE}════════ OpenClaw Docker 安装 ════════${NC}"
     echo ""
     
     pct list
@@ -1521,11 +1752,8 @@ docker_menu() {
         clear
         echo -e "${BLUE}════════ Docker 管理 ════════${NC}"
         echo -e "  ${GREEN}[1]${NC} 安装 Docker (含 Docker Compose)"
-        echo -e "  ${GREEN}[2]${NC} 安装 DPanel 面板"
-        echo -e "  ${GREEN}[3]${NC} 安装 Lucky 大吉"
-        echo -e "  ${GREEN}[4]${NC} 安装 OpenClaw"
-        echo -e "  ${GREEN}[5]${NC} Docker 换源"
-        echo -e "  ${GREEN}[6]${NC} Docker 容器管理"
+        echo -e "  ${GREEN}[2]${NC} Docker 换源"
+        echo -e "  ${GREEN}[3]${NC} Docker 容器管理"
         echo -e "  ${GREEN}[0]${NC} 返回"
         echo -ne "${CYAN}选择: ${NC}"
         read c
@@ -1541,18 +1769,9 @@ docker_menu() {
                 pause_func
                 ;;
             2)
-                install_dpanel
-                ;;
-            3)
-                install_lucky
-                ;;
-            4)
-                install_openclaw
-                ;;
-            5)
                 docker_change_registry
                 ;;
-            6)
+            3)
                 docker_container_menu
                 ;;
             0) break ;;
