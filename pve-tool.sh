@@ -1405,9 +1405,29 @@ install_openclaw_native() {
     echo -e "${YELLOW}开始安装 OpenClaw...${NC}"
     echo ""
 
+    # 0. 检测是否需要使用国内镜像加速
+    local npm_mirror=""
+    local nodesource_mirror=""
+    pct exec "$lxc_id" -- bash -lc '
+        # 测试到 GitHub 的连通性，判断是否需要加速
+        if ! curl -fsSL --connect-timeout 5 https://registry.npmjs.org/ > /dev/null 2>&1; then
+            echo "NEED_MIRROR"
+        fi
+    ' > /tmp/openclaw_mirror_check 2>/dev/null
+    local need_mirror=$(cat /tmp/openclaw_mirror_check 2>/dev/null | grep -c "NEED_MIRROR" || echo "0")
+    rm -f /tmp/openclaw_mirror_check
+
+    if [[ "$need_mirror" -gt 0 ]]; then
+        npm_mirror="https://registry.npmmirror.com"
+        nodesource_mirror="https://npmmirror.com/mirrors/nodesource"
+        echo -e "${CYAN}  检测到网络环境较慢，已启用国内镜像加速${NC}"
+    else
+        echo -e "${CYAN}  网络环境正常，使用默认源${NC}"
+    fi
+
     # 1. 更新系统
     echo -e "${CYAN}[1/5] 更新系统...${NC}"
-    pct exec "$lxc_id" -- bash -lc "apt update -qq && apt upgrade -y -qq" > /dev/null 2>&1
+    pct exec "$lxc_id" -- bash -lc "apt update -qq > /dev/null 2>&1"
     echo -e "${GREEN}  ✓ 系统更新完成${NC}"
 
     # 2. 安装基础依赖
@@ -1417,25 +1437,37 @@ install_openclaw_native() {
 
     # 3. 安装 Node.js 22 LTS (与官方安装脚本一致)
     echo -e "${CYAN}[3/5] 安装 Node.js 22 LTS...${NC}"
-    pct exec "$lxc_id" -- bash -lc '
-        if ! command -v node &>/dev/null || [[ "$(node -v 2>/dev/null)" != v22* ]]; then
-            curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+    pct exec "$lxc_id" -- bash -lc "
+        if ! command -v node &>/dev/null || [[ \"\$(node -v 2>/dev/null)\" != v22* ]]; then
+            if [[ -n '${nodesource_mirror}' ]]; then
+                # 使用 npmmirror 镜像加速 NodeSource
+                curl -fsSL '${nodesource_mirror}/setup_22.x' | bash - > /dev/null 2>&1 || \
+                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+            else
+                curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+            fi
             apt install -y -qq nodejs > /dev/null 2>&1
         fi
-        echo "  ✓ Node.js $(node -v) 已安装"
-    '
+        echo \"  ✓ Node.js \$(node -v) 已安装\"
+    "
 
     # 4. 通过 npm 全局安装 OpenClaw (官方推荐方式)
     echo -e "${CYAN}[4/5] 安装 OpenClaw...${NC}"
-    pct exec "$lxc_id" -- bash -lc '
+    pct exec "$lxc_id" -- bash -lc "
         export SHARP_IGNORE_GLOBAL_LIBVIPS=1
-        npm install -g --no-fund --no-audit openclaw@latest > /dev/null 2>&1
-        if command -v openclaw &>/dev/null; then
-            echo "  ✓ OpenClaw $(openclaw --version 2>/dev/null || echo "已安装") 已安装"
-        else
-            echo "  ✓ OpenClaw 已安装"
+        if [[ -n '${npm_mirror}' ]]; then
+            npm config set registry '${npm_mirror}' > /dev/null 2>&1
         fi
-    '
+        npm install -g --no-fund --no-audit openclaw@latest > /dev/null 2>&1
+        if [[ -n '${npm_mirror}' ]]; then
+            npm config set registry https://registry.npmjs.org/ > /dev/null 2>&1
+        fi
+        if command -v openclaw &>/dev/null; then
+            echo \"  ✓ OpenClaw \$(openclaw --version 2>/dev/null || echo \"已安装\") 已安装\"
+        else
+            echo \"  ✓ OpenClaw 已安装\"
+        fi
+    "
     local install_result=$?
     if [[ $install_result -ne 0 ]]; then
         echo -e "${RED}  ✗ OpenClaw 安装失败${NC}"
