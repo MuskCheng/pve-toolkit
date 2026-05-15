@@ -11,6 +11,10 @@ else
     VERSION="V0.9.2"
 fi
 
+# 版本信息缓存
+VERSION_CACHE_FILE="/tmp/pve-toolkit-version-cache"
+VERSION_CACHE_TTL=3600  # 缓存有效期（秒）
+
 # 查询 GitHub 最新版本（支持国内镜像加速）
 get_latest_version() {
     local latest
@@ -19,7 +23,7 @@ get_latest_version() {
         "https://mirror.ghproxy.com/https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
         "https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
     )
-    
+
     for url in "${api_urls[@]}"; do
         latest=$(curl -sSL --connect-timeout 5 "$url" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
         if [[ -n "$latest" ]]; then
@@ -30,10 +34,39 @@ get_latest_version() {
     echo ""
 }
 
-LATEST_VERSION=$(get_latest_version)
-if [[ -z "$LATEST_VERSION" ]]; then
-    LATEST_VERSION="$VERSION"
-fi
+# 从缓存读取远程版本，缓存过期则后台刷新
+LATEST_VERSION=""
+load_version_cache() {
+    local cache_age=0
+    if [[ -f "$VERSION_CACHE_FILE" ]]; then
+        cache_age=$(( $(date +%s) - $(stat -c %Y "$VERSION_CACHE_FILE" 2>/dev/null || echo 0) ))
+        LATEST_VERSION=$(cat "$VERSION_CACHE_FILE" 2>/dev/null)
+    fi
+
+    # 缓存有效且非空，直接使用
+    if [[ -n "$LATEST_VERSION" ]] && [[ "$cache_age" -lt "$VERSION_CACHE_TTL" ]]; then
+        return
+    fi
+
+    # 后台刷新缓存
+    (
+        latest=$(get_latest_version)
+        if [[ -n "$latest" ]]; then
+            echo "$latest" > "$VERSION_CACHE_FILE"
+        fi
+    ) &
+
+    # 如果缓存为空（首次运行），同步等待结果
+    if [[ -z "$LATEST_VERSION" ]]; then
+        sleep 3
+        LATEST_VERSION=$(cat "$VERSION_CACHE_FILE" 2>/dev/null)
+    fi
+
+    # 兜底
+    LATEST_VERSION=${LATEST_VERSION:-$VERSION}
+}
+
+load_version_cache
 
 get_latest_debian_template() {
     local template_url="http://download.proxmox.com/images/system/"
@@ -273,32 +306,59 @@ fi
 BACKUP_DIR="/var/lib/vz/dump"
 LXC_MEM=2048; LXC_CORES=2; LXC_DISK=8
 
+# 检测运行环境信息
+detect_env_info() {
+    ENV_PVE_VER=$(pveversion 2>/dev/null | grep -oP 'pve-manager/\K[0-9.]+')
+    ENV_DEBIAN_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "unknown")
+    ENV_KERNEL=$(uname -r)
+    ENV_HOSTNAME=$(hostname)
+}
+
 # 显示菜单
 show_menu() {
     clear
+
+    # 每次显示菜单时刷新缓存（后台，不阻塞）
+    load_version_cache
+
     echo -e "${BOLD}"
     cat << 'EOF'
-██████╗ ██╗   ██╗███████╗    ████████╗ ██████╗  ██████╗ ██╗     
-██╔══██╗██║   ██║██╔════╝    ╚══██╔══╝██╔═══██╗██╔═══██╗██║     
-██████╔╝██║   ██║█████╗         ██║   ██║   ██║██║   ██║██║     
-██╔═══╝ ╚██╗ ██╔╝██╔══╝         ██║   ██║   ██║██║   ██║██║     
+██████╗ ██╗   ██╗███████╗    ████████╗ ██████╗  ██████╗ ██╗
+██╔══██╗██║   ██║██╔════╝    ╚══██╔══╝██╔═══██╗██╔═══██╗██║
+██████╔╝██║   ██║█████╗         ██║   ██║   ██║██║   ██║██║
+██╔═══╝ ╚██╗ ██╔╝██╔══╝         ██║   ██║   ██║██║   ██║██║
 ██║      ╚████╔╝ ███████╗       ██║   ╚██████╔╝╚██████╔╝███████╗
 ╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
 EOF
     echo -e "${NC}"
-    echo -e "${GREEN}PVE Toolkit 一键脚本${NC}"
-    echo -e "${YELLOW}Proxmox VE 管理工具集，简化日常运维${NC}"
-    
-    # 版本比较并显示提示（使用语义版本比较）
+
+    # ── 版本状态卡片 ──
     local current_ver=${VERSION#[vV]}
     local latest_ver=${LATEST_VERSION#[vV]}
     local older_ver=$(printf '%s\n' "$current_ver" "$latest_ver" | sort -V | head -n1)
+    local has_update=false
     if [[ "$latest_ver" != "$current_ver" ]] && [[ "$older_ver" == "$current_ver" ]]; then
-        echo -e "${RED}⚠️  有新版本可用！当前: ${VERSION} → 最新: ${LATEST_VERSION}${NC}"
-        echo -e "${YELLOW}   运行 git pull 或重新下载脚本以更新${NC}"
-    else
-        echo -e "${CYAN}当前版本: ${VERSION} (已是最新)${NC}"
+        has_update=true
     fi
+
+    echo -e "${CYAN}  ╭───────────────────────────────────────────╮${NC}"
+    if $has_update; then
+        echo -e "${CYAN}  │${NC}  本地版本: ${WHITE}${VERSION}${NC}"
+        echo -e "${CYAN}  │${NC}  远程版本: ${GREEN}${LATEST_VERSION}${NC}  ${RED}← 有新版本可用!${NC}"
+    else
+        echo -e "${CYAN}  │${NC}  本地版本: ${WHITE}${VERSION}${NC}  ${GREEN}(已是最新)${NC}"
+        echo -e "${CYAN}  │${NC}  远程版本: ${WHITE}${LATEST_VERSION}${NC}"
+    fi
+    echo -e "${CYAN}  │${NC}  运行环境: ${WHITE}PVE ${ENV_PVE_VER:-N/A}${NC} / ${WHITE}Debian ${ENV_DEBIAN_CODENAME}${NC}"
+    echo -e "${CYAN}  │${NC}  内核版本: ${WHITE}${ENV_KERNEL}${NC}"
+    echo -e "${CYAN}  │${NC}  主机名称: ${WHITE}${ENV_HOSTNAME}${NC}"
+    echo -e "${CYAN}  ╰───────────────────────────────────────────╯${NC}"
+
+    if $has_update; then
+        echo -e "${RED}    ⚠  运行 git pull 或重新下载脚本以更新${NC}"
+    fi
+    echo ""
+
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     echo -e "${WHITE}请选择您需要的功能:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
@@ -2870,8 +2930,9 @@ EOF
 main() {
     echo -e "${GREEN}PVE Toolkit $VERSION 加载完成${NC}"
     echo -e "${GREEN}PVE 版本检查通过${NC}"
+    detect_env_info
     sleep 1
-    
+
     while true; do
         show_menu
         echo -ne "${CYAN}选择 [0-3]: ${NC}"
