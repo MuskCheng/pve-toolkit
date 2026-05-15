@@ -13,12 +13,13 @@ fi
 
 # 版本信息缓存
 VERSION_CACHE_FILE="/tmp/pve-toolkit-version-cache"
-VERSION_CACHE_TTL=3600  # 缓存有效期（秒）
+VERSION_CACHE_TTL=1800  # 缓存有效期（秒）- 30分钟
 
 # 查询 GitHub 最新版本（支持国内镜像加速）
 get_latest_version() {
     local latest
     local api_urls=(
+        "https://ghfast.top/https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
         "https://ghproxy.net/https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
         "https://mirror.ghproxy.com/https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
         "https://api.github.com/repos/MuskCheng/pve-toolkit/releases/latest"
