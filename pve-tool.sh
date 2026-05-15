@@ -11,11 +11,8 @@ else
     VERSION="V0.9.7"
 fi
 
-# 版本信息缓存
-VERSION_CACHE_FILE="/tmp/pve-toolkit-version-cache"
-VERSION_CACHE_TTL=1800  # 缓存有效期（秒）- 30分钟
-
 # 查询 GitHub 最新版本（支持国内镜像加速）
+LATEST_VERSION=""
 get_latest_version() {
     local latest
     local api_urls=(
@@ -35,39 +32,46 @@ get_latest_version() {
     echo ""
 }
 
-# 从缓存读取远程版本，缓存过期则后台刷新
-LATEST_VERSION=""
-load_version_cache() {
-    local cache_age=0
-    if [[ -f "$VERSION_CACHE_FILE" ]]; then
-        cache_age=$(( $(date +%s) - $(stat -c %Y "$VERSION_CACHE_FILE" 2>/dev/null || echo 0) ))
-        LATEST_VERSION=$(cat "$VERSION_CACHE_FILE" 2>/dev/null)
-    fi
+# 自动更新函数
+auto_update() {
+    local current_ver="${VERSION#v}"
+    local latest_ver="${LATEST_VERSION#v}"
 
-    # 缓存有效且非空，直接使用
-    if [[ -n "$LATEST_VERSION" ]] && [[ "$cache_age" -lt "$VERSION_CACHE_TTL" ]]; then
-        return
-    fi
+    echo -e "${YELLOW}正在下载最新版本...${NC}"
+    local update_urls=(
+        "https://ghfast.top/https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh"
+        "https://ghproxy.net/https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh"
+        "https://raw.githubusercontent.com/MuskCheng/pve-toolkit/master/pve-tool.sh"
+    )
 
-    # 后台刷新缓存
-    (
-        latest=$(get_latest_version)
-        if [[ -n "$latest" ]]; then
-            echo "$latest" > "$VERSION_CACHE_FILE"
+    local temp_file="/tmp/pve-tool-update.sh"
+    local download_success=false
+
+    for url in "${update_urls[@]}"; do
+        if curl -sSL --connect-timeout 10 "$url" -o "$temp_file" 2>/dev/null; then
+            if [[ -s "$temp_file" ]]; then
+                download_success=true
+                break
+            fi
         fi
-    ) &
+    done
 
-    # 如果缓存为空（首次运行），同步等待结果
-    if [[ -z "$LATEST_VERSION" ]]; then
-        sleep 3
-        LATEST_VERSION=$(cat "$VERSION_CACHE_FILE" 2>/dev/null)
+    if $download_success; then
+        # 备份原文件
+        cp "$SCRIPT_DIR/pve-tool.sh" "$SCRIPT_DIR/pve-tool.sh.bak" 2>/dev/null
+        # 替换脚本
+        mv "$temp_file" "$SCRIPT_DIR/pve-tool.sh"
+        chmod +x "$SCRIPT_DIR/pve-tool.sh"
+        # 更新 VERSION 文件
+        echo "$LATEST_VERSION" > "$SCRIPT_DIR/VERSION"
+        msg_ok "更新完成！已从 $VERSION 更新到 $LATEST_VERSION"
+        echo -e "${CYAN}请重新运行脚本以使用新版本${NC}"
+        exit 0
+    else
+        msg_error "下载更新失败，请手动更新"
+        rm -f "$temp_file"
     fi
-
-    # 兜底
-    LATEST_VERSION=${LATEST_VERSION:-$VERSION}
 }
-
-load_version_cache
 
 get_latest_debian_template() {
     local template_url="http://download.proxmox.com/images/system/"
@@ -504,9 +508,6 @@ detect_env_info() {
 # 显示菜单
 show_menu() {
     clear
-
-    # 每次显示菜单时刷新缓存（后台，不阻塞）
-    load_version_cache
 
     # Banner（渐变色）
     echo -e "  ${CYAN}██████╗${WHITE} ██╗   ██╗${BRIGHT_GREEN}███████╗${NC}    ${CYAN}████████╗${WHITE} ██████╗${BRIGHT_GREEN}  ██████╗${NC} ██╗"
@@ -3194,14 +3195,46 @@ main() {
     fi
     msg_ok "PVE 版本检查通过"
     detect_env_info
+
+    # 后台检测最新版本
+    (
+        LATEST_VERSION=$(get_latest_version)
+        if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "$VERSION" ]]; then
+            # 写入临时文件供主进程读取
+            echo "$LATEST_VERSION" > /tmp/pve-toolkit-latest-version
+        fi
+    ) &
+
     sleep 1
+
+    # 检查是否有新版本（从后台任务获取）
+    if [[ -f /tmp/pve-toolkit-latest-version ]]; then
+        LATEST_VERSION=$(cat /tmp/pve-toolkit-latest-version 2>/dev/null)
+        rm -f /tmp/pve-toolkit-latest-version
+
+        if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "$VERSION" ]]; then
+            echo ""
+            echo -e "${YELLOW}════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}  发现新版本: $LATEST_VERSION (当前: $VERSION)${NC}"
+            echo -e "${YELLOW}════════════════════════════════════════${NC}"
+            echo ""
+            echo -e "  ${GREEN}[1]${NC} 立即更新"
+            echo -e "  ${GREEN}[0]${NC} 跳过更新"
+            echo ""
+            echo -ne "请选择: "; read update_choice
+
+            if [[ "$update_choice" == "1" ]]; then
+                auto_update
+            fi
+        fi
+    fi
 
     while true; do
         show_menu
         echo -ne "${CYAN}选择 [0-3]: ${NC}"
         read choice
         echo
-        
+
         case "$choice" in
             1) system_menu ;;
             2) lxc_menu ;;
