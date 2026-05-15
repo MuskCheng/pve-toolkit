@@ -371,24 +371,122 @@ pause_func() {
     echo
 }
 
+# 调试模式检测
+DEBUG_MODE=false
+RISK_ACK_BYPASS=false
+for arg in "$@"; do
+    if [[ "$arg" == "--debug" ]]; then
+        DEBUG_MODE=true
+    fi
+    if [[ "$arg" == "--i-know-what-i-do" ]]; then
+        RISK_ACK_BYPASS=true
+    fi
+done
+
 # 检查 root
-[[ $EUID -ne 0 ]] && { msg_error "需要 root 权限"; exit 1; }
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        msg_error "需要 root 权限运行此脚本"
+        echo "请使用以下命令重新运行："
+        echo "  sudo $0"
+        exit 1
+    fi
+}
+check_root
 
-# 检查 PVE 版本
-if ! command -v pveversion &>/dev/null; then
-    msg_error "抱歉，不支持此系统"
-    msg_warn "本工具仅支持 Proxmox VE 9.1+"
-    exit 1
-fi
+# PVE 版本检测（双重检测机制）
+PVE_VER=""
+PVE_MAJOR=""
+PVE_MINOR=""
 
-PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1,2)
-PVE_MINOR=$(echo "$PVE_VER" | cut -d. -f2)
-if [[ -z "$PVE_VER" || "$PVE_MINOR" -lt 1 ]]; then
-    msg_error "抱歉，不支持此版本"
-    msg_warn "当前版本: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
-    msg_warn "本工具仅支持 Proxmox VE 9.1 或更高版本"
-    exit 1
-fi
+check_pve_version() {
+    # 调试模式跳过检查
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        msg_warn "调试模式：跳过 PVE 版本检测"
+        PVE_VER="0.0"
+        PVE_MAJOR="0"
+        PVE_MINOR="0"
+        return
+    fi
+
+    # 第一次检测：pveversion 命令
+    if ! command -v pveversion &>/dev/null; then
+        # 第二次检测：dpkg-query
+        if command -v dpkg-query >/dev/null 2>&1; then
+            local pkg_ver
+            pkg_ver=$(dpkg-query -W -f='${Version}' pve-manager 2>/dev/null || true)
+            if [[ -z "$pkg_ver" ]]; then
+                msg_error "当前环境不是 Proxmox VE"
+                echo "请在 PVE 系统上运行此脚本"
+                exit 1
+            fi
+        else
+            msg_error "当前环境不是 Proxmox VE"
+            echo "请在 PVE 系统上运行此脚本"
+            exit 1
+        fi
+    fi
+
+    # 获取版本号
+    local pve_version
+    pve_version=$(pveversion 2>/dev/null | grep -oP 'pve-manager/\K[0-9.]+')
+
+    # 如果 pveversion 失败，尝试 dpkg-query
+    if [[ -z "$pve_version" ]] && command -v dpkg-query >/dev/null 2>&1; then
+        pve_version=$(dpkg-query -W -f='${Version}' pve-manager 2>/dev/null | grep -oE '^[0-9]+(\.[0-9]+)*' | head -n 1)
+    fi
+
+    if [[ -z "$pve_version" ]]; then
+        msg_error "无法检测 PVE 版本"
+        exit 1
+    fi
+
+    PVE_VER="$pve_version"
+    PVE_MAJOR=$(echo "$pve_version" | cut -d. -f1)
+    PVE_MINOR=$(echo "$pve_version" | cut -d. -f2)
+
+    # 版本检查
+    if [[ "$PVE_MAJOR" -lt 9 ]] || [[ "$PVE_MAJOR" -eq 9 && "$PVE_MINOR" -lt 1 ]]; then
+        # 非 PVE9.1+ 环境，询问用户是否继续
+        if [[ "$RISK_ACK_BYPASS" != "true" ]]; then
+            echo ""
+            echo -e "${RED}警告：当前为 PVE $pve_version，非 PVE 9.1+ 环境${NC}"
+            echo -e "${RED}部分功能可能不兼容或导致系统问题${NC}"
+            echo ""
+            echo -e "  ${GREEN}[1]${NC} 我了解风险，继续使用"
+            echo -e "  ${RED}[0]${NC} 退出"
+            echo ""
+            echo -ne "请选择: "; read risk_choice
+
+            if [[ "$risk_choice" != "1" ]]; then
+                msg_info "已退出"
+                exit 0
+            fi
+            msg_warn "已确认风险：当前为非 PVE9.1+ 环境"
+            RISK_ACK_BYPASS=true
+        fi
+    else
+        msg_ok "检测到 PVE 版本: $pve_version"
+    fi
+}
+check_pve_version
+
+# 拦截非 PVE9 的危险操作
+block_non_pve9_destructive() {
+    local feature="$1"
+
+    # 调试模式或已确认风险，允许执行
+    if [[ "$DEBUG_MODE" == "true" ]] || [[ "$RISK_ACK_BYPASS" == "true" ]]; then
+        return 0
+    fi
+
+    if [[ "$PVE_MAJOR" -lt 9 ]]; then
+        msg_error "已拦截：非 PVE9 环境禁止执行 $feature"
+        msg_warn "请在 PVE9 上使用此功能"
+        return 1
+    fi
+    return 0
+}
 
 # 配置
 BACKUP_DIR="/var/lib/vz/dump"
@@ -396,7 +494,7 @@ LXC_MEM=2048; LXC_CORES=2; LXC_DISK=8
 
 # 检测运行环境信息
 detect_env_info() {
-    ENV_PVE_VER=$(pveversion 2>/dev/null | grep -oP 'pve-manager/\K[0-9.]+')
+    ENV_PVE_VER="${PVE_VER:-$(pveversion 2>/dev/null | grep -oP 'pve-manager/\K[0-9.]+')}"
     ENV_DEBIAN_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "unknown")
     ENV_KERNEL=$(uname -r)
     ENV_HOSTNAME=$(hostname)
@@ -807,7 +905,7 @@ lxc_operate_menu() {
         echo -e "  ${GREEN}[3]${NC} 停止容器"
         echo -e "  ${GREEN}[4]${NC} 重启容器"
         echo -e "  ${GREEN}[5]${NC} 克隆容器"
-        echo -e "  ${GREEN}[6]${NC} 修改容器资源"
+        echo -e "  ${GREEN}[6]${NC} 修改容器资源（内存/CPU/磁盘）"
         echo -e "  ${GREEN}[7]${NC} 修改网络配置"
         echo -e "  ${GREEN}[8]${NC} 转换容器类型"
         echo -e ""
@@ -852,13 +950,65 @@ lxc_operate_menu() {
             6)
                 echo -ne "请输入要修改的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    echo "当前配置:"
-                    pct config "$id" | grep -E "^(memory|cores|rootfs)"
-                    echo -ne "新内存(MB, 回车跳过): "; read new_mem
-                    echo -ne "新CPU核心(回车跳过): "; read new_cores
-                    [[ -n "$new_mem" ]] && pct set "$id" -memory "$new_mem"
-                    [[ -n "$new_cores" ]] && pct set "$id" -cores "$new_cores"
-                    msg_ok "配置已更新"
+                    echo -e "\n${CYAN}当前配置:${NC}"
+                    pct config "$id" | grep -E "^(memory|cores|rootfs|mp[0-9]+)"
+                    echo ""
+                    echo -e "  ${GREEN}[1]${NC} 修改内存/CPU"
+                    echo -e "  ${GREEN}[2]${NC} 扩容磁盘"
+                    echo -ne "\n请选择操作: "; read res_choice
+                    case "$res_choice" in
+                        1)
+                            echo -ne "新内存(MB, 回车跳过): "; read new_mem
+                            echo -ne "新CPU核心(回车跳过): "; read new_cores
+                            [[ -n "$new_mem" ]] && pct set "$id" -memory "$new_mem"
+                            [[ -n "$new_cores" ]] && pct set "$id" -cores "$new_cores"
+                            msg_ok "配置已更新"
+                            ;;
+                        2)
+                            # 解析可用磁盘
+                            local disks=()
+                            while IFS= read -r line; do
+                                local disk_name=$(echo "$line" | cut -d: -f1 | tr -d ' ')
+                                local disk_size=$(echo "$line" | grep -oP 'size=\K[^,]+')
+                                disks+=("$disk_name")
+                                echo "  [$(( ${#disks[@]} ))] $disk_name (当前: $disk_size)"
+                            done < <(pct config "$id" | grep -E "^(rootfs|mp[0-9]+):")
+
+                            if [[ ${#disks[@]} -eq 0 ]]; then
+                                msg_err "未找到可扩容的磁盘"
+                                pause_func
+                                return
+                            fi
+
+                            echo -ne "\n请选择要扩容的磁盘编号: "; read choice
+                            if [[ -z "$choice" || "$choice" -lt 1 || "$choice" -gt ${#disks[@]} ]]; then
+                                msg_err "无效选择"
+                                pause_func
+                                return
+                            fi
+
+                            local selected_disk="${disks[$((choice-1))]}"
+                            local current_size=$(pct config "$id" | grep "^${selected_disk}:" | grep -oP 'size=\K[^,]+')
+                            echo -e "\n${CYAN}当前大小: $current_size${NC}"
+                            echo -ne "请输入新的磁盘大小(GB): "; read new_size
+
+                            if [[ -z "$new_size" || ! "$new_size" =~ ^[0-9]+$ ]]; then
+                                msg_err "无效大小"
+                                pause_func
+                                return
+                            fi
+
+                            echo -e "\n${YELLOW}即将扩容 $selected_disk: $current_size -> ${new_size}G${NC}"
+                            confirm_action "确认扩容?" || return
+
+                            echo "扩容中..."
+                            if pct resize "$id" "$selected_disk" "${new_size}G"; then
+                                msg_ok "扩容完成"
+                            else
+                                msg_err "扩容失败"
+                            fi
+                            ;;
+                    esac
                 fi
                 pause_func
                 ;;
@@ -3038,6 +3188,9 @@ EOF
 # 主循环
 main() {
     msg_ok "PVE Toolkit $VERSION 加载完成"
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        msg_warn "调试模式已启用"
+    fi
     msg_ok "PVE 版本检查通过"
     detect_env_info
     sleep 1
