@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     VERSION=$(cat "$SCRIPT_DIR/VERSION")
 else
-    VERSION="V0.9.5"
+    VERSION="V0.9.6"
 fi
 
 # 版本信息缓存
@@ -82,10 +82,10 @@ download_latest_debian_template() {
     latest_template=$(get_latest_debian_template)
     
     if [[ -z "$latest_template" ]]; then
-        echo -e "${RED}无法获取最新 Debian 模板信息${NC}"
+        msg_error "无法获取最新 Debian 模板信息"
         return 1
     fi
-    
+
     if [[ -f "$cache_dir/$latest_template" ]]; then
         echo "$latest_template"
         return 0
@@ -113,7 +113,94 @@ BLUE=$'\033[0;34m'
 CYAN=$'\033[0;36m'
 WHITE=$'\033[1;37m'
 BOLD=$'\033[1m'
+DIM=$'\033[2m'
+BRIGHT_GREEN=$'\033[1;92m'
+BRIGHT_RED=$'\033[1;91m'
+BRIGHT_YELLOW=$'\033[1;93m'
+BRIGHT_CYAN=$'\033[1;96m'
+BG_RED=$'\033[41m'
+BG_GREEN=$'\033[42m'
 NC=$'\033[0m'
+
+# ─── UI 工具函数 ───
+# 统一消息输出
+msg_info()    { echo -e "  ${BRIGHT_YELLOW}⏳${NC}  ${YELLOW}${1}${NC}"; }
+msg_ok()      { echo -e "  ${BRIGHT_GREEN}✔${NC}  ${GREEN}${1}${NC}"; }
+msg_error()   { echo -e "  ${BRIGHT_RED}✘${NC}  ${RED}${1}${NC}" >&2; }
+msg_warn()    { echo -e "  ${BRIGHT_YELLOW}⚠${NC}  ${YELLOW}${1}${NC}"; }
+msg_step()    { echo -e "  ${BRIGHT_CYAN}[$1/$2]${NC}  ${WHITE}${3}${NC}"; }
+
+# 菜单标题栏（双线边框 + 居中标题）
+draw_header() {
+    local title="$1"
+    local width="${2:-52}"
+    local title_len=0
+    local i
+    for ((i=0; i<${#title}; i++)); do
+        local c="${title:$i:1}"
+        if [[ "$c" =~ [^\x00-\x7F] ]]; then
+            title_len=$((title_len + 2))
+        else
+            title_len=$((title_len + 1))
+        fi
+    done
+    local pad_left=$(( (width - 2 - title_len) / 2 ))
+    local pad_right=$(( width - 2 - title_len - pad_left ))
+    [[ $pad_left -lt 0 ]] && pad_left=0
+    [[ $pad_right -lt 0 ]] && pad_right=0
+    echo ""
+    echo -e "${BLUE}$(printf '═%.0s' $(seq 1 $width))${NC}"
+    printf "${BLUE}║${NC}%${pad_left}s${WHITE}${BOLD}${title}${NC}%${pad_right}s${BLUE}║${NC}\n" "" ""
+    echo -e "${BLUE}$(printf '═%.0s' $(seq 1 $width))${NC}"
+    echo ""
+}
+
+# 分隔线
+draw_separator() {
+    local width="${1:-52}"
+    echo -e "${DIM}$(printf '─%.0s' $(seq 1 $width))${NC}"
+}
+
+# 确认对话框（带醒目警告框）
+# 用法: confirm_action "提示信息"  返回 0=确认, 1=取消
+confirm_action() {
+    local msg="$1"
+    local width=50
+    local inner=$((width - 4))
+    echo ""
+    echo -e "  ${BG_RED}${WHITE}${BOLD} ⚠ 警告 ${NC}"
+    echo -e "  ${RED}${msg}${NC}"
+    echo -e "  ${DIM}此操作不可逆，请确认已备份重要数据${NC}"
+    echo ""
+    echo -ne "  ${YELLOW}确认执行? (y/N): ${NC}"
+    read confirm
+    [[ "$confirm" == "y" || "$confirm" == "Y" ]]
+}
+
+# Spinner（Braille 点阵动画）
+_SPINNER_PID=""
+_SPINNER_MSG=""
+spinner_start() {
+    _SPINNER_MSG="${1:-处理中...}"
+    _spin_chars=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+    _spin_i=0
+    (
+        while true; do
+            local idx=$(( (_spin_i++) % ${#_spin_chars[@]} ))
+            printf "\r\033[2K  ${BRIGHT_YELLOW}%s${NC}  ${YELLOW}%s${NC}" "${_spin_chars[$idx]}" "$_SPINNER_MSG"
+            sleep 0.1
+        done
+    ) &
+    _SPINNER_PID=$!
+}
+spinner_stop() {
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null
+        _SPINNER_PID=""
+        printf "\r\033[2K"
+    fi
+}
 
 # 全局变量（从环境变量继承或重新检测）
 PVE_MAJOR_VERSION="${PVE_MAJOR_VERSION:-}"
@@ -124,7 +211,7 @@ DEBUG_MODE=false
 for arg in "$@"; do
     if [[ "$arg" == "--debug" ]]; then
         DEBUG_MODE=true
-        echo -e "${YELLOW}调试模式已启用${NC}"
+        msg_warn "调试模式已启用"
     fi
 done
 
@@ -143,7 +230,7 @@ block_non_pve9() {
         return 0
     fi
     if [[ "${PVE_MAJOR_VERSION:-}" != "9" ]]; then
-        echo -e "${RED}已拦截: 非 PVE9 环境禁止执行「$feature」${NC}"
+        msg_error "已拦截: 非 PVE9 环境禁止执行「$feature」"
         return 1
     fi
     return 0
@@ -241,19 +328,19 @@ check_docker_in_lxc() {
 
 # 打印容器类型说明
 print_container_type_info() {
-    echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}  容器类型说明${NC}"
-    echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
-    echo -e "  ${GREEN}[1]${NC} 特权容器"
-    echo -e "      • Docker 支持最佳，无需额外配置"
-    echo -e "      • systemd 完全兼容"
-    echo -e "      • ${RED}安全性较低 (容器 root = 宿主机 root)${NC}"
-    echo ""
-    echo -e "  ${GREEN}[2]${NC} 无特权容器"
-    echo -e "      • 安全性高 (容器 root 映射为 uid 100000+)"
-    echo -e "      • ${RED}Docker 需额外配置${NC}"
-    echo -e "      • ${RED}部分应用可能不兼容${NC}"
-    echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}┌────────────────────────────────────────────────┐${NC}"
+    echo -e "${BLUE}│${NC}  ${WHITE}${BOLD}容器类型说明${NC}"
+    echo -e "${BLUE}├────────────────────────────────────────────────┤${NC}"
+    echo -e "${BLUE}│${NC}  ${GREEN}[1]${NC} 特权容器"
+    echo -e "${BLUE}│${NC}      ${DIM}• Docker 支持最佳，无需额外配置${NC}"
+    echo -e "${BLUE}│${NC}      ${DIM}• systemd 完全兼容${NC}"
+    echo -e "${BLUE}│${NC}      ${RED}• 安全性较低 (容器 root = 宿主机 root)${NC}"
+    echo -e "${BLUE}│${NC}"
+    echo -e "${BLUE}│${NC}  ${GREEN}[2]${NC} 无特权容器"
+    echo -e "${BLUE}│${NC}      ${DIM}• 安全性高 (容器 root 映射为 uid 100000+)${NC}"
+    echo -e "${BLUE}│${NC}      ${RED}• Docker 需额外配置${NC}"
+    echo -e "${BLUE}│${NC}      ${RED}• 部分应用可能不兼容${NC}"
+    echo -e "${BLUE}└────────────────────────────────────────────────┘${NC}"
 }
 
 # 备份函数
@@ -278,27 +365,28 @@ backup_file() {
 
 # 暂停函数
 pause_func() {
-    echo -ne "${YELLOW}按任意键继续...${NC} "
+    echo ""
+    echo -ne "  ${DIM}按任意键继续...${NC} "
     read -n 1 -s
     echo
 }
 
 # 检查 root
-[[ $EUID -ne 0 ]] && { echo -e "${RED}需要 root 权限${NC}"; exit 1; }
+[[ $EUID -ne 0 ]] && { msg_error "需要 root 权限"; exit 1; }
 
 # 检查 PVE 版本
 if ! command -v pveversion &>/dev/null; then
-    echo -e "${RED}抱歉，不支持此系统${NC}"
-    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.1+${NC}"
+    msg_error "抱歉，不支持此系统"
+    msg_warn "本工具仅支持 Proxmox VE 9.1+"
     exit 1
 fi
 
 PVE_VER=$(pveversion | grep -oP 'pve-manager/\K[0-9.]+' | cut -d. -f1,2)
 PVE_MINOR=$(echo "$PVE_VER" | cut -d. -f2)
 if [[ -z "$PVE_VER" || "$PVE_MINOR" -lt 1 ]]; then
-    echo -e "${RED}抱歉，不支持此版本${NC}"
-    echo -e "${YELLOW}当前版本: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
-    echo -e "${YELLOW}本工具仅支持 Proxmox VE 9.1 或更高版本${NC}"
+    msg_error "抱歉，不支持此版本"
+    msg_warn "当前版本: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
+    msg_warn "本工具仅支持 Proxmox VE 9.1 或更高版本"
     exit 1
 fi
 
@@ -321,16 +409,14 @@ show_menu() {
     # 每次显示菜单时刷新缓存（后台，不阻塞）
     load_version_cache
 
-    echo -e "${BOLD}"
-    cat << 'EOF'
-██████╗ ██╗   ██╗███████╗    ████████╗ ██████╗  ██████╗ ██╗
-██╔══██╗██║   ██║██╔════╝    ╚══██╔══╝██╔═══██╗██╔═══██╗██║
-██████╔╝██║   ██║█████╗         ██║   ██║   ██║██║   ██║██║
-██╔═══╝ ╚██╗ ██╔╝██╔══╝         ██║   ██║   ██║██║   ██║██║
-██║      ╚████╔╝ ███████╗       ██║   ╚██████╔╝╚██████╔╝███████╗
-╚═╝       ╚═══╝  ╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝
-EOF
-    echo -e "${NC}"
+    # Banner（渐变色）
+    echo -e "  ${CYAN}██████╗${WHITE} ██╗   ██╗${BRIGHT_GREEN}███████╗${NC}    ${CYAN}████████╗${WHITE} ██████╗${BRIGHT_GREEN}  ██████╗${NC} ██╗"
+    echo -e "  ${CYAN}██╔══██╗${WHITE}██║   ██║${BRIGHT_GREEN}██╔════╝${NC}    ${CYAN}╚══██╔══╝${WHITE}██╔═══██╗${BRIGHT_GREEN}██╔═══██╗${NC}██║"
+    echo -e "  ${CYAN}██████╔╝${WHITE}██║   ██║${BRIGHT_GREEN}█████╗${NC}         ${CYAN}██║${NC}   ${WHITE}██║   ██║${BRIGHT_GREEN}██║   ██║${NC}██║"
+    echo -e "  ${CYAN}██╔═══╝${NC} ${WHITE}╚██╗ ██╔╝${BRIGHT_GREEN}██╔══╝${NC}         ${CYAN}██║${NC}   ${WHITE}██║   ██║${BRIGHT_GREEN}██║   ██║${NC}██║"
+    echo -e "  ${CYAN}██║${NC}      ${WHITE}╚████╔╝${BRIGHT_GREEN} ███████╗${NC}       ${CYAN}██║${NC}   ${WHITE}╚██████╔╝${BRIGHT_GREEN}╚██████╔╝${NC}███████╗"
+    echo -e "  ${CYAN}╚═╝${NC}       ${WHITE}╚═══╝${BRIGHT_GREEN}  ╚══════╝${NC}       ${CYAN}╚═╝${NC}    ${WHITE}╚═════╝${BRIGHT_GREEN}  ╚═════╝${NC} ╚══════╝"
+    echo ""
 
     # ── 版本状态卡片 ──
     local current_ver=${VERSION#[vV]}
@@ -341,49 +427,50 @@ EOF
         has_update=true
     fi
 
-    echo -e "${CYAN}  ╭───────────────────────────────────────────╮${NC}"
+    echo -e "${CYAN}  ╭───────────────────────────────────────────────────────╮${NC}"
     if $has_update; then
-        echo -e "${CYAN}  │${NC}  本地版本: ${WHITE}${VERSION}${NC}"
-        echo -e "${CYAN}  │${NC}  远程版本: ${GREEN}${LATEST_VERSION}${NC}  ${RED}← 有新版本可用!${NC}"
+        echo -e "${CYAN}  │${NC}  本地版本: ${WHITE}${VERSION}${NC}    状态: ${BG_RED}${WHITE} 需要更新 ${NC}"
+        echo -e "${CYAN}  │${NC}  远程版本: ${GREEN}${LATEST_VERSION}${NC}"
     else
-        echo -e "${CYAN}  │${NC}  本地版本: ${WHITE}${VERSION}${NC}  ${GREEN}(已是最新)${NC}"
+        echo -e "${CYAN}  │${NC}  本地版本: ${WHITE}${VERSION}${NC}    状态: ${BG_GREEN}${WHITE} 已是最新 ${NC}"
         echo -e "${CYAN}  │${NC}  远程版本: ${WHITE}${LATEST_VERSION}${NC}"
     fi
     echo -e "${CYAN}  │${NC}  运行环境: ${WHITE}PVE ${ENV_PVE_VER:-N/A}${NC} / ${WHITE}Debian ${ENV_DEBIAN_CODENAME}${NC}"
     echo -e "${CYAN}  │${NC}  内核版本: ${WHITE}${ENV_KERNEL}${NC}"
     echo -e "${CYAN}  │${NC}  主机名称: ${WHITE}${ENV_HOSTNAME}${NC}"
-    echo -e "${CYAN}  ╰───────────────────────────────────────────╯${NC}"
+    echo -e "${CYAN}  ╰───────────────────────────────────────────────────────╯${NC}"
 
     if $has_update; then
-        echo -e "${RED}    ⚠  运行 git pull 或重新下载脚本以更新${NC}"
+        echo -e "  ${BRIGHT_RED}⚠${NC}  ${RED}运行 git pull 或重新下载脚本以更新${NC}"
     fi
     echo ""
 
-    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-    echo -e "${WHITE}请选择您需要的功能:${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-    echo -e "  ${GREEN}[1]${NC} 系统管理"
-    echo -e "  ${GREEN}[2]${NC} LXC 容器管理"
-    echo -e "  ${GREEN}[3]${NC} 换源工具"
-    echo -e "  ${GREEN}[0]${NC} 退出"
-    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-    echo -e "${RED}⚠️  安全提示: 操作前请备份重要数据，删除/恢复等操作不可逆${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${WHITE}请选择您需要的功能:${NC}"
+    echo -e "${BLUE}───────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${GREEN}[1]${NC} 系统管理      ${DIM}状态/更新/清理/内核${NC}"
+    echo -e "  ${GREEN}[2]${NC} LXC 容器管理  ${DIM}创建/删除/Docker/应用${NC}"
+    echo -e "  ${GREEN}[3]${NC} 换源工具      ${DIM}APT/Ceph 镜像源切换${NC}"
+    echo -e ""
+    echo -e "  ${RED}[0]${NC} 退出"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${DIM}💡 操作前请备份重要数据，删除/恢复等操作不可逆${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 }
 
 # 显示容器列表（增强版）
 show_lxc_list() {
     clear
-    echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}                          LXC 容器列表${NC}"
-    echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
-    printf " %-5s %-20s %-6s %-6s %-15s\n" "VMID" "名称" "状态" "特权容器" "IP地址"
-    echo -e "${BLUE}────────────────────────────────────────────────────────${NC}"
+    echo -e "${BLUE}┌──────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${BLUE}│${NC}${WHITE}${BOLD}                          LXC 容器列表${NC}"
+    echo -e "${BLUE}├──────────────────────────────────────────────────────────────────────┤${NC}"
+    printf " ${WHITE}%-5s %-20s %-6s %-6s %-15s${NC}\n" "VMID" "名称" "状态" "特权容器" "IP地址"
+    echo -e "${BLUE}├──────────────────────────────────────────────────────────────────────┤${NC}"
     
     local containers=$(pct list 2>/dev/null | tail -n +2)
     if [[ -z "$containers" ]]; then
-        echo -e "${YELLOW}  无容器${NC}"
-        echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
+        msg_warn "无容器"
+        echo -e "${BLUE}└──────────────────────────────────────────────────────────────────────┘${NC}"
         return
     fi
     
@@ -425,34 +512,36 @@ show_lxc_list() {
         printf "${WHITE}%-5s${NC} ${WHITE}%-20s${NC} ${status_color}%-6s${NC} ${priv_color}%-6s${NC} ${WHITE}%-15s${NC}\n" \
             "$vmid" "$name" "$status_text" "$priv_text" "$ip_addr"
     done <<< "$containers"
-    
-    echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
+
+    echo -e "${BLUE}└──────────────────────────────────────────────────────────────────────┘${NC}"
 }
 
 # LXC 管理
 lxc_menu() {
     while true; do
         clear
-        echo -e "${BLUE}════════ LXC 容器管理 ════════${NC}"
+        draw_header "LXC 容器管理"
         echo -e "  ${GREEN}[1]${NC} 查看容器列表"
         echo -e "  ${GREEN}[2]${NC} 创建新容器"
         echo -e "  ${GREEN}[3]${NC} 删除容器"
         echo -e "  ${GREEN}[4]${NC} 容器操作"
         echo -e "  ${GREEN}[5]${NC} Docker 管理"
         echo -e "  ${GREEN}[6]${NC} 应用安装"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
         case "$c" in
             1) show_lxc_list; pause_func ;;
             2)
-                echo -e "${YELLOW}=== 检查并下载最新 Debian 模板 ===${NC}"
+                msg_info "=== 检查并下载最新 Debian 模板 ==="
                 latest_template=$(get_latest_debian_template)
                 
                 if [[ -z "$latest_template" ]]; then
-                    echo -e "${RED}无法获取最新 Debian 模板信息${NC}"
+                    msg_error "无法获取最新 Debian 模板信息"
                     pause_func
                     continue
                 fi
@@ -461,38 +550,39 @@ lxc_menu() {
                 
                 cache_dir="/var/lib/vz/template/cache"
                 if [[ -f "$cache_dir/$latest_template" ]]; then
-                    echo -e "${GREEN}模板已存在，跳过下载${NC}"
+                    msg_ok "模板已存在，跳过下载"
                 else
-                    echo -e "${YELLOW}正在下载最新模板...${NC}"
+                    spinner_start "正在下载最新模板..."
                     mkdir -p "$cache_dir"
                     if curl -fSL "http://download.proxmox.com/images/system/$latest_template" -o "$cache_dir/$latest_template" 2>/dev/null; then
-                        echo -e "${GREEN}模板下载完成: $latest_template${NC}"
+                        spinner_stop
+                        msg_ok "模板下载完成: $latest_template"
                         ls "$cache_dir"/debian-*-standard_*.tar.zst 2>/dev/null | grep -v "$latest_template" | while read -r old_template; do
                             echo -e "  ${RED}删除旧模板: ${NC}$(basename "$old_template")"
                             rm -f "$old_template"
                         done
                     else
-                        echo -e "${RED}模板下载失败${NC}"
+                        msg_error "模板下载失败"
                         rm -f "$cache_dir/$latest_template"
                         pause_func
                         continue
                     fi
                 fi
                 
-                echo -e "${YELLOW}=== 可用 LXC 模板 ===${NC}"
+                msg_info "=== 可用 LXC 模板 ==="
                 if ls /var/lib/vz/template/cache/*.tar.zst 2>/dev/null; then
                     echo ""
                 else
-                    echo -e "${YELLOW}未找到本地模板${NC}"
+                    msg_warn "未找到本地模板"
                 fi
-                echo -e "${YELLOW}=== 当前 LXC 容器 ===${NC}"
+                msg_info "=== 当前 LXC 容器 ==="
                 pct list
                 echo ""
                 echo -ne "容器 ID: "; read id
 
                 # 检查容器 ID 是否已存在
                 if [[ -n "$id" ]] && pct status "$id" &>/dev/null; then
-                    echo -e "${RED}错误: 容器 ID $id 已被占用，请选择其他 ID${NC}"
+                    msg_error "容器 ID $id 已被占用，请选择其他 ID"
                     pause_func
                     continue
                 fi
@@ -502,7 +592,7 @@ lxc_menu() {
                 echo -ne "CPU核心 [2]: "; read cores
                 echo -e "${CYAN}建议: 基础运行 4GB, 常规使用 8GB, 开发环境 16GB+${NC}"
                 echo -ne "磁盘(GB) [8]: "; read disk
-                echo -e "${YELLOW}使用模板: $latest_template${NC}"
+                msg_info "使用模板: $latest_template"
                 template=$latest_template
                 mem=${mem:-2048}; cores=${cores:-2}; disk=${disk:-8}
                 
@@ -524,7 +614,7 @@ lxc_menu() {
                     
                     if [[ $? -eq 0 ]]; then
                         echo ""
-                        echo -e "${GREEN}容器创建成功!${NC}"
+                        msg_ok "容器创建成功!"
                     fi
                 fi
                 pause_func
@@ -533,12 +623,12 @@ lxc_menu() {
                 pct list
                 echo -ne "请输入要删除的容器 ID: "; read id
                 if [[ -n "$id" ]]; then
-                    echo -e "${RED}警告: 将删除容器 $id 及其所有数据!${NC}"
+                    msg_warn "将删除容器 $id 及其所有数据!"
                     echo -ne "确认删除? (y/N): "; read confirm
                     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
                         pct stop "$id" 2>/dev/null
                         pct destroy "$id"
-                        echo -e "${GREEN}容器 $id 已删除${NC}"
+                        msg_ok "容器 $id 已删除"
                     fi
                 fi
                 pause_func
@@ -555,14 +645,16 @@ lxc_menu() {
 app_install_menu() {
     while true; do
         clear
-        echo -e "${BLUE}════════ 应用安装 ════════${NC}"
-        echo -e "${YELLOW}在 LXC 容器中安装常用应用${NC}"
+        draw_header "应用安装"
+        echo -e "  ${DIM}在 LXC 容器中安装常用应用${NC}"
         echo ""
         echo -e "  ${GREEN}[1]${NC} 安装 OpenClaw (AI 助手)"
         echo -e "  ${GREEN}[2]${NC} 安装 Lucky 大吉 (反向代理)"
         echo -e "  ${GREEN}[3]${NC} 安装 DPanel 面板 (Docker 管理)"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
@@ -571,7 +663,7 @@ app_install_menu() {
             2) install_lucky ;;
             3) install_dpanel ;;
             0) break ;;
-            *) echo -e "${RED}无效选择${NC}"; sleep 1 ;;
+            *) msg_error "无效选择"; sleep 1 ;;
         esac
     done
 }
@@ -586,13 +678,13 @@ lxc_convert_type() {
     echo -ne "请输入容器 ID: "; read id
     
     if [[ -z "$id" ]]; then
-        echo -e "${RED}未输入容器 ID${NC}"
+        msg_error "未输入容器 ID"
         pause_func
         return
     fi
     
     if ! pct status "$id" &>/dev/null; then
-        echo -e "${RED}容器 $id 不存在${NC}"
+        msg_error "容器 $id 不存在"
         pause_func
         return
     fi
@@ -619,32 +711,32 @@ lxc_convert_type() {
     
     if [[ "$target_value" == "1" ]]; then
         echo ""
-        echo -e "${RED}⚠️  警告: 特权 → 无特权转换${NC}"
-        echo -e "${RED}   • 容器内所有文件的所有权将被重新映射${NC}"
-        echo -e "${RED}   • 建议先备份重要数据${NC}"
-        echo -e "${RED}   • 转换后部分应用可能无法正常运行${NC}"
+        msg_warn "特权 → 无特权转换"
+        msg_warn "• 容器内所有文件的所有权将被重新映射"
+        msg_warn "• 建议先备份重要数据"
+        msg_warn "• 转换后部分应用可能无法正常运行"
     else
         echo ""
-        echo -e "${RED}⚠️  警告: 无特权 → 特权转换${NC}"
-        echo -e "${RED}   • 容器内所有文件的所有权将被修改为 root${NC}"
-        echo -e "${RED}   • 安全性降低 (容器 root = 宿主机 root)${NC}"
-        echo -e "${RED}   • 建议先备份重要数据${NC}"
+        msg_warn "无特权 → 特权转换"
+        msg_warn "• 容器内所有文件的所有权将被修改为 root"
+        msg_warn "• 安全性降低 (容器 root = 宿主机 root)"
+        msg_warn "• 建议先备份重要数据"
     fi
     
     echo ""
     echo -ne "确认转换? (y/N): "; read confirm
     
     if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo -e "${YELLOW}已取消${NC}"
+        msg_warn "已取消"
         pause_func
         return
     fi
-    
+
     echo ""
-    echo -e "${YELLOW}正在停止容器...${NC}"
+    msg_info "正在停止容器..."
     pct stop "$id" 2>/dev/null
     
-    echo -e "${YELLOW}正在修改配置...${NC}"
+    msg_info "正在修改配置..."
     
     if grep -q "^unprivileged:" "$config_file"; then
         sed -i "s/^unprivileged:.*/unprivileged: $target_value/" "$config_file"
@@ -653,8 +745,8 @@ lxc_convert_type() {
     fi
     
     if [[ "$target_value" == "1" ]]; then
-        echo -e "${YELLOW}正在转换文件所有权 (特权→无特权)...${NC}"
-        echo -e "${YELLOW}  将 root UID 0 映射为 UID 100000...${NC}"
+        msg_info "正在转换文件所有权 (特权→无特权)..."
+        msg_info "将 root UID 0 映射为 UID 100000..."
         local rootfs=$(grep "^rootfs:" "$config_file" | awk '{print $2}' | cut -d',' -f1)
         if [[ -n "$rootfs" && -d "$rootfs" ]]; then
             chown -R 100000:100000 "$rootfs" 2>/dev/null
@@ -664,14 +756,14 @@ lxc_convert_type() {
         grep "^mp[0-9]*:" "$config_file" | while IFS= read -r mp_line; do
             local mp_path=$(echo "$mp_line" | awk '{print $2}' | cut -d',' -f1)
             if [[ -n "$mp_path" && -d "$mp_path" ]]; then
-                echo -e "${YELLOW}  处理挂载点: $mp_path${NC}"
+                msg_info "处理挂载点: $mp_path"
                 chown -R 100000:100000 "$mp_path" 2>/dev/null
                 find "$mp_path" -type d -exec chmod 755 {} \; 2>/dev/null
             fi
         done
     else
-        echo -e "${YELLOW}正在转换文件所有权 (无特权→特权)...${NC}"
-        echo -e "${YELLOW}  将 UID 100000 映射回 root UID 0...${NC}"
+        msg_info "正在转换文件所有权 (无特权→特权)..."
+        msg_info "将 UID 100000 映射回 root UID 0..."
         local rootfs=$(grep "^rootfs:" "$config_file" | awk '{print $2}' | cut -d',' -f1)
         if [[ -n "$rootfs" && -d "$rootfs" ]]; then
             chown -R 0:0 "$rootfs" 2>/dev/null
@@ -681,22 +773,22 @@ lxc_convert_type() {
         grep "^mp[0-9]*:" "$config_file" | while IFS= read -r mp_line; do
             local mp_path=$(echo "$mp_line" | awk '{print $2}' | cut -d',' -f1)
             if [[ -n "$mp_path" && -d "$mp_path" ]]; then
-                echo -e "${YELLOW}  处理挂载点: $mp_path${NC}"
+                msg_info "处理挂载点: $mp_path"
                 chown -R 0:0 "$mp_path" 2>/dev/null
                 find "$mp_path" -type d -exec chmod 755 {} \; 2>/dev/null
             fi
         done
     fi
     
-    echo -e "${YELLOW}正在启动容器...${NC}"
+    msg_info "正在启动容器..."
     pct start "$id"
     
     if [[ $? -eq 0 ]]; then
         echo ""
-        echo -e "${GREEN}转换完成!${NC}"
-        echo -e "${GREEN}容器类型已从 $current_type_str 转换为 $target_type_str${NC}"
+        msg_ok "转换完成!"
+        msg_ok "容器类型已从 $current_type_str 转换为 $target_type_str"
     else
-        echo -e "${RED}容器启动失败，请检查配置${NC}"
+        msg_error "容器启动失败，请检查配置"
     fi
     
     pause_func
@@ -706,8 +798,8 @@ lxc_convert_type() {
 lxc_operate_menu() {
     while true; do
         clear
-        echo -e "${BLUE}════════ 容器操作 ════════${NC}"
-        echo -e "${YELLOW}当前容器:${NC}"
+        draw_header "容器操作"
+        msg_info "当前容器:"
         pct list
         echo ""
         echo -e "  ${GREEN}[1]${NC} 进入容器控制台"
@@ -718,8 +810,10 @@ lxc_operate_menu() {
         echo -e "  ${GREEN}[6]${NC} 修改容器资源"
         echo -e "  ${GREEN}[7]${NC} 修改网络配置"
         echo -e "  ${GREEN}[8]${NC} 转换容器类型"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
@@ -751,7 +845,7 @@ lxc_operate_menu() {
                 if [[ -n "$src_id" && -n "$dst_id" && -n "$dst_hn" ]]; then
                     echo "克隆中..."
                     pct clone "$src_id" "$dst_id" --hostname "$dst_hn" --full
-                    echo -e "${GREEN}克隆完成${NC}"
+                    msg_ok "克隆完成"
                 fi
                 pause_func
                 ;;
@@ -764,7 +858,7 @@ lxc_operate_menu() {
                     echo -ne "新CPU核心(回车跳过): "; read new_cores
                     [[ -n "$new_mem" ]] && pct set "$id" -memory "$new_mem"
                     [[ -n "$new_cores" ]] && pct set "$id" -cores "$new_cores"
-                    echo -e "${GREEN}配置已更新${NC}"
+                    msg_ok "配置已更新"
                 fi
                 pause_func
                 ;;
@@ -807,15 +901,15 @@ lxc_change_network() {
     echo -ne "请输入容器 ID: "; read id
     
     if [[ -z "$id" ]]; then
-        echo -e "${RED}错误: 请输入容器 ID${NC}"
+        msg_error "请输入容器 ID"
         pause_func
         return
     fi
-    
+
     CURRENT_NET=$(pct config "$id" | grep "^net0:" | head -1)
-    
+
     if [[ -z "$CURRENT_NET" ]]; then
-        echo -e "${RED}错误: 无法获取网络配置${NC}"
+        msg_error "无法获取网络配置"
         pause_func
         return
     fi
@@ -887,7 +981,7 @@ lxc_change_network() {
     fi
     
     echo ""
-    echo -e "${YELLOW}当前网络配置:${NC}"
+    msg_info "当前网络配置:"
     echo "──────────────────────────────────"
     echo -e "  ${WHITE}接口名称:${NC} ${CYAN}$NET_NAME${NC}"
     echo -e "  ${WHITE}网桥:${NC}     ${CYAN}$NET_BRIDGE${NC}"
@@ -901,7 +995,7 @@ lxc_change_network() {
     echo "──────────────────────────────────"
     echo ""
     
-    echo -e "${YELLOW}选择配置方式:${NC}"
+    msg_info "选择配置方式:"
     echo -e "  ${GREEN}[1]${NC} 设置静态 IP"
     echo -e "  ${GREEN}[2]${NC} 设置 DHCP"
     echo -e "  ${GREEN}[0]${NC} 取消"
@@ -911,19 +1005,19 @@ lxc_change_network() {
     
     case "$net_choice" in
         1)
-            echo -e "${YELLOW}=== 设置静态 IP ===${NC}"
+            msg_info "=== 设置静态 IP ==="
             echo -ne "IP 地址 (如 192.168.1.100): "; read new_ip
             echo -ne "子网掩码 (如 24): "; read new_mask
             echo -ne "网关 (如 192.168.1.1): "; read new_gw
             
             if [[ -z "$new_ip" || -z "$new_mask" || -z "$new_gw" ]]; then
-                echo -e "${RED}错误: 请填写完整信息${NC}"
+                msg_error "请填写完整信息"
                 pause_func
                 return
             fi
             
             echo ""
-            echo -e "${YELLOW}确认配置:${NC}"
+            msg_info "确认配置:"
             echo -e "  IP: ${CYAN}${new_ip}/${new_mask}${NC}"
             echo -e "  网关: ${CYAN}${new_gw}${NC}"
             echo ""
@@ -931,36 +1025,36 @@ lxc_change_network() {
             
             if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
                 if pct set "$id" -net0 "name=${NET_NAME},bridge=${NET_BRIDGE},ip=${new_ip}/${new_mask},gw=${new_gw}" 2>/dev/null; then
-                    echo -e "${GREEN}配置已更新!${NC}"
+                    msg_ok "配置已更新!"
                     echo -ne "是否重启容器使配置生效? (y/N): "; read restart_confirm
                     if [[ "$restart_confirm" == "y" || "$restart_confirm" == "Y" ]]; then
                         echo "重启容器中..."
                         pct reboot "$id" 2>/dev/null || { pct stop "$id" && sleep 2 && pct start "$id"; }
-                        echo -e "${GREEN}容器已重启${NC}"
+                        msg_ok "容器已重启"
                     fi
                 else
-                    echo -e "${RED}配置失败${NC}"
+                    msg_error "配置失败"
                 fi
             else
                 echo "已取消"
             fi
             ;;
         2)
-            echo -e "${YELLOW}=== 设置 DHCP ===${NC}"
+            msg_info "=== 设置 DHCP ==="
             echo ""
             echo -ne "确认切换到 DHCP 模式? (y/N): "; read confirm
             
             if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
                 if pct set "$id" -net0 "name=${NET_NAME},bridge=${NET_BRIDGE},ip=dhcp" 2>/dev/null; then
-                    echo -e "${GREEN}配置已更新!${NC}"
+                    msg_ok "配置已更新!"
                     echo -ne "是否重启容器使配置生效? (y/N): "; read restart_confirm
                     if [[ "$restart_confirm" == "y" || "$restart_confirm" == "Y" ]]; then
                         echo "重启容器中..."
                         pct reboot "$id" 2>/dev/null || { pct stop "$id" && sleep 2 && pct start "$id"; }
-                        echo -e "${GREEN}容器已重启${NC}"
+                        msg_ok "容器已重启"
                     fi
                 else
-                    echo -e "${RED}配置失败${NC}"
+                    msg_error "配置失败"
                 fi
             else
                 echo "已取消"
@@ -970,10 +1064,10 @@ lxc_change_network() {
             return
             ;;
         *)
-            echo -e "${RED}无效选择${NC}"
+            msg_error "无效选择"
             ;;
     esac
-    
+
     pause_func
 }
 
@@ -989,36 +1083,36 @@ check_and_install_docker() {
     local lxc_id=$1
 
     if [[ -z "$lxc_id" ]]; then
-        echo -e "${RED}错误: 请提供容器 ID${NC}"
+        msg_error "请提供容器 ID"
         return 1
     fi
 
-    echo -e "${YELLOW}检查 Docker 环境...${NC}"
+    msg_info "检查 Docker 环境..."
 
     local DOCKER_AVAILABLE=0
     
     if pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null || \
        pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null || \
        pct exec "$lxc_id" -- test -x /usr/local/bin/docker 2>/dev/null; then
-        echo -e "${GREEN}Docker 已安装${NC}"
+        msg_ok "Docker 已安装"
         pct exec "$lxc_id" -- docker --version 2>/dev/null || pct exec "$lxc_id" -- /usr/bin/docker --version 2>/dev/null || true
         DOCKER_AVAILABLE=1
         
-        echo -e "${YELLOW}尝试启动 Docker 服务...${NC}"
+        msg_info "尝试启动 Docker 服务..."
         pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
         pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
         
         if pct exec "$lxc_id" -- docker info &>/dev/null; then
-            echo -e "${GREEN}Docker 服务运行正常${NC}"
+            msg_ok "Docker 服务运行正常"
         else
-            echo -e "${YELLOW}Docker 服务未运行，尝试直接使用 docker 命令...${NC}"
+            msg_warn "Docker 服务未运行，尝试直接使用 docker 命令..."
         fi
     else
-        echo -e "${YELLOW}Docker 未安装，开始安装...${NC}"
-        echo -e "${YELLOW}安装 Docker (使用国内镜像源)...${NC}"
-        
-        echo -e "${YELLOW}配置 Docker CE 镜像源...${NC}"
-        echo -e "${YELLOW}安装必要工具 (gnupg, curl)...${NC}"
+        msg_warn "Docker 未安装，开始安装..."
+        msg_info "安装 Docker (使用国内镜像源)..."
+
+        msg_info "配置 Docker CE 镜像源..."
+        msg_info "安装必要工具 (gnupg, curl)..."
         pct exec "$lxc_id" -- bash -lc 'apt update && apt install -y gnupg curl' 2>&1 || true
         
         # 动态检测容器内的 Debian codename
@@ -1029,17 +1123,17 @@ check_and_install_docker() {
         if pct exec "$lxc_id" -- bash -lc 'mkdir -p /etc/apt/keyrings' 2>&1 && \
            pct exec "$lxc_id" -- bash -lc 'curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg' 2>&1 && \
            pct exec "$lxc_id" -- bash -lc "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian ${lxc_codename} stable' > /etc/apt/sources.list.d/docker.list" 2>&1; then
-            echo -e "${GREEN}镜像源配置成功，正在更新软件包缓存...${NC}"
+            msg_ok "镜像源配置成功，正在更新软件包缓存..."
             pct exec "$lxc_id" -- bash -lc 'apt-get update -o Acquire::Languages=none -o Acquire::Translation=none' 2>&1 || true
             
-            echo -e "${GREEN}开始安装 Docker...${NC}"
+            msg_ok "开始安装 Docker..."
             if pct exec "$lxc_id" -- bash -lc 'apt install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' 2>&1; then
                 pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
                 pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
                 
                 if pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null || \
                    pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
-                    echo -e "${GREEN}Docker 安装完成${NC}"
+                    msg_ok "Docker 安装完成"
                     pct exec "$lxc_id" -- docker --version 2>/dev/null || true
                     DOCKER_AVAILABLE=1
                 fi
@@ -1047,14 +1141,14 @@ check_and_install_docker() {
         fi
         
         if [[ $DOCKER_AVAILABLE -eq 0 ]]; then
-            echo -e "${RED}Docker CE 安装失败，尝试安装 docker.io...${NC}"
+            msg_error "Docker CE 安装失败，尝试安装 docker.io..."
             if pct exec "$lxc_id" -- bash -lc 'apt install -y --no-install-recommends docker.io' 2>&1; then
                 pct exec "$lxc_id" -- bash -lc 'systemctl enable docker 2>/dev/null || true'
                 pct exec "$lxc_id" -- bash -lc 'systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true'
                 
                 if pct exec "$lxc_id" -- bash -lc 'command -v docker &>/dev/null' 2>/dev/null || \
                    pct exec "$lxc_id" -- test -x /usr/bin/docker 2>/dev/null; then
-                    echo -e "${GREEN}Docker (docker.io) 安装完成${NC}"
+                    msg_ok "Docker (docker.io) 安装完成"
                     pct exec "$lxc_id" -- docker --version 2>/dev/null || true
                     DOCKER_AVAILABLE=1
                 fi
@@ -1063,7 +1157,7 @@ check_and_install_docker() {
     fi
     
     if [[ $DOCKER_AVAILABLE -eq 0 ]]; then
-        echo -e "${RED}Docker 安装失败${NC}"
+        msg_error "Docker 安装失败"
         return 1
     fi
 
@@ -1072,21 +1166,21 @@ check_and_install_docker() {
     
     if pct exec "$lxc_id" -- test -x /usr/local/bin/docker-compose 2>/dev/null; then
         COMPOSE_CMD="/usr/local/bin/docker-compose"
-        echo -e "${GREEN}Docker Compose 已安装 (docker-compose)${NC}"
+        msg_ok "Docker Compose 已安装 (docker-compose)"
         pct exec "$lxc_id" -- /usr/local/bin/docker-compose --version 2>/dev/null || true
     elif pct exec "$lxc_id" -- bash -lc 'command -v docker-compose &>/dev/null' 2>/dev/null; then
         COMPOSE_CMD="docker-compose"
-        echo -e "${GREEN}Docker Compose 已安装 (docker-compose)${NC}"
+        msg_ok "Docker Compose 已安装 (docker-compose)"
         pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
     elif pct exec "$lxc_id" -- bash -lc 'docker compose version &>/dev/null' 2>/dev/null; then
         COMPOSE_CMD="docker compose"
-        echo -e "${GREEN}Docker Compose 已安装 (docker compose plugin)${NC}"
+        msg_ok "Docker Compose 已安装 (docker compose plugin)"
         pct exec "$lxc_id" -- docker compose version 2>/dev/null || true
     else
-        echo -e "${YELLOW}Docker Compose 未安装，开始安装...${NC}"
+        msg_warn "Docker Compose 未安装，开始安装..."
         local COMPOSE_INSTALL_SUCCESS=0
 
-        echo -e "${YELLOW}安装必要工具 (curl/wget)...${NC}"
+        msg_info "安装必要工具 (curl/wget)..."
         local CURL_INSTALL_LOG=$(pct exec "$lxc_id" -- bash -lc 'apt install -y --no-install-recommends curl wget 2>&1' || true)
 
         local HAS_CURL=0
@@ -1094,55 +1188,55 @@ check_and_install_docker() {
         if pct exec "$lxc_id" -- bash -lc 'command -v curl &>/dev/null' 2>/dev/null || \
            pct exec "$lxc_id" -- test -x /usr/bin/curl 2>/dev/null; then
             HAS_CURL=1
-            echo -e "${GREEN}curl 已安装${NC}"
+            msg_ok "curl 已安装"
         fi
         if pct exec "$lxc_id" -- bash -lc 'command -v wget &>/dev/null' 2>/dev/null || \
            pct exec "$lxc_id" -- test -x /usr/bin/wget 2>/dev/null; then
             HAS_WGET=1
-            echo -e "${GREEN}wget 已安装${NC}"
+            msg_ok "wget 已安装"
         fi
         
         if [[ $HAS_CURL -eq 0 && $HAS_WGET -eq 0 ]]; then
-            echo -e "${YELLOW}curl/wget 不可用，尝试使用 pip 安装...${NC}"
+            msg_warn "curl/wget 不可用，尝试使用 pip 安装..."
             if pct exec "$lxc_id" -- bash -lc 'command -v pip3 &>/dev/null' 2>/dev/null || \
                pct exec "$lxc_id" -- test -x /usr/bin/pip3 2>/dev/null; then
                 if pct exec "$lxc_id" -- pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple docker-compose --break-system-packages 2>&1; then
                     local PIP_COMPOSE_PATH=$(pct exec "$lxc_id" -- bash -lc 'command -v docker-compose 2>/dev/null' || echo "")
                     if [[ -n "$PIP_COMPOSE_PATH" ]]; then
-                        echo -e "${GREEN}Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH${NC}"
+                        msg_ok "Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH"
                         COMPOSE_CMD="$PIP_COMPOSE_PATH"
                         pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
                         COMPOSE_INSTALL_SUCCESS=1
                     fi
                 fi
             fi
-            
+
             if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
-                echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
-                echo -e "${YELLOW}手动安装命令:${NC}"
+                msg_error "Docker Compose 安装失败，请手动安装"
+                msg_info "手动安装命令:"
                 echo -e "  apt update && apt install -y curl"
                 echo -e "  curl -L \"https://github.com/docker/compose/releases/download/v2.35.0/docker-compose-linux-x86_64\" -o /usr/local/bin/docker-compose"
                 echo -e "  chmod +x /usr/local/bin/docker-compose"
                 return 1
             fi
         else
-            echo -e "${YELLOW}获取 Docker Compose 最新版本...${NC}"
+            msg_info "获取 Docker Compose 最新版本..."
             if [[ $HAS_CURL -eq 1 ]]; then
                 local API_RESULT=$(pct exec "$lxc_id" -- bash -lc 'curl -sL --connect-timeout 10 "https://api.github.com/repos/docker/compose/releases/latest" 2>&1' || echo "")
                 COMPOSE_VERSION=$(echo "$API_RESULT" | grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
                 if [[ -z "$COMPOSE_VERSION" ]]; then
-                    echo -e "${YELLOW}GitHub API 访问失败，网络可能受限${NC}"
+                    msg_warn "GitHub API 访问失败，网络可能受限"
                 fi
             fi
             
             if [[ -z "$COMPOSE_VERSION" ]]; then
                 COMPOSE_VERSION="v2.35.0"
-                echo -e "${YELLOW}无法获取最新版本，使用默认版本: $COMPOSE_VERSION${NC}"
+                msg_warn "无法获取最新版本，使用默认版本: $COMPOSE_VERSION"
             else
-                echo -e "${GREEN}最新版本: $COMPOSE_VERSION${NC}"
+                msg_ok "最新版本: $COMPOSE_VERSION"
             fi
             
-            echo -e "${YELLOW}尝试使用二进制方式安装...${NC}"
+            msg_info "尝试使用二进制方式安装..."
             local COMPOSE_URLS=(
                 "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
                 "https://mirrors.aliyun.com/docker-compose/${COMPOSE_VERSION}/docker-compose-Linux-x86_64"
@@ -1176,9 +1270,9 @@ check_and_install_docker() {
                 
                 if [[ "$FILE_SIZE" -gt 1000000 && $IS_HTML -eq 0 ]]; then
                     DOWNLOAD_SUCCESS=1
-                    echo -e "${GREEN}下载完成，文件大小: ${FILE_SIZE} bytes${NC}"
+                    msg_ok "下载完成，文件大小: ${FILE_SIZE} bytes"
                 else
-                    echo -e "${RED}下载的文件无效 (大小: ${FILE_SIZE} bytes, head: ${FILE_HEAD})${NC}"
+                    msg_error "下载的文件无效 (大小: ${FILE_SIZE} bytes, head: ${FILE_HEAD})"
                     pct exec "$lxc_id" -- bash -lc 'rm -f /usr/local/bin/docker-compose' 2>/dev/null || true
                 fi
                 
@@ -1190,38 +1284,38 @@ check_and_install_docker() {
                     if [[ "$HAS_FILE_CMD" == "1" ]]; then
                         local IS_ELF=$(pct exec "$lxc_id" -- file /usr/local/bin/docker-compose 2>/dev/null | grep -i "elf\|executable" || echo "")
                         if [[ -z "$IS_ELF" ]]; then
-                            echo -e "${RED}文件不是有效的可执行文件${NC}"
+                            msg_error "文件不是有效的可执行文件"
                             pct exec "$lxc_id" -- bash -lc 'rm -f /usr/local/bin/docker-compose' 2>/dev/null || true
                             DOWNLOAD_SUCCESS=0
                         fi
                     else
-                        echo -e "${YELLOW}  file 命令不可用，跳过 ELF 验证（后续将通过 --version 验证）${NC}"
+                        msg_warn "file 命令不可用，跳过 ELF 验证（后续将通过 --version 验证）"
                     fi
                 fi
 
                 if [[ $DOWNLOAD_SUCCESS -eq 1 ]]; then
                     local VERIFY_OUTPUT=$(pct exec "$lxc_id" -- bash -lc '/usr/local/bin/docker-compose --version 2>&1' || true)
                     if [[ "$VERIFY_OUTPUT" =~ Docker\ Compose ]]; then
-                        echo -e "${GREEN}Docker Compose (二进制) 安装完成: $VERIFY_OUTPUT${NC}"
+                        msg_ok "Docker Compose (二进制) 安装完成: $VERIFY_OUTPUT"
                         COMPOSE_CMD="/usr/local/bin/docker-compose"
                         COMPOSE_INSTALL_SUCCESS=1
                         break
                     else
-                        echo -e "${RED}验证失败: $VERIFY_OUTPUT${NC}"
+                        msg_error "验证失败: $VERIFY_OUTPUT"
                         pct exec "$lxc_id" -- bash -lc 'rm -f /usr/local/bin/docker-compose' 2>/dev/null || true
                     fi
                 fi
-                echo -e "${RED}此源下载失败，尝试下一个...${NC}"
+                msg_error "此源下载失败，尝试下一个..."
             done
             
             if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
-                echo -e "${RED}所有下载方式均失败，尝试 pip 安装...${NC}"
+                msg_error "所有下载方式均失败，尝试 pip 安装..."
                 if pct exec "$lxc_id" -- bash -lc 'command -v pip3 &>/dev/null' 2>/dev/null || \
                    pct exec "$lxc_id" -- test -x /usr/bin/pip3 2>/dev/null; then
                     if pct exec "$lxc_id" -- pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple docker-compose --break-system-packages 2>&1; then
                         local PIP_COMPOSE_PATH=$(pct exec "$lxc_id" -- bash -lc 'command -v docker-compose 2>/dev/null' || echo "")
                         if [[ -n "$PIP_COMPOSE_PATH" ]]; then
-                            echo -e "${GREEN}Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH${NC}"
+                            msg_ok "Docker Compose (pip) 安装完成: $PIP_COMPOSE_PATH"
                             COMPOSE_CMD="$PIP_COMPOSE_PATH"
                             pct exec "$lxc_id" -- docker-compose --version 2>/dev/null || true
                             COMPOSE_INSTALL_SUCCESS=1
@@ -1229,10 +1323,10 @@ check_and_install_docker() {
                     fi
                 fi
             fi
-            
+
             if [[ $COMPOSE_INSTALL_SUCCESS -eq 0 ]]; then
-                echo -e "${RED}Docker Compose 安装失败，请手动安装${NC}"
-                echo -e "${YELLOW}手动安装命令:${NC}"
+                msg_error "Docker Compose 安装失败，请手动安装"
+                msg_info "手动安装命令:"
                 echo -e "  apt update && apt install -y curl"
                 echo -e "  curl -L \"https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64\" -o /usr/local/bin/docker-compose"
                 echo -e "  chmod +x /usr/local/bin/docker-compose"
@@ -1247,19 +1341,19 @@ check_and_install_docker() {
 # 安装 DPanel 面板
 install_dpanel() {
     clear
-    echo -e "${BLUE}════════ DPanel 面板安装 ════════${NC}"
-    echo -e "${YELLOW}DPanel - Docker 可视化管理面板${NC}"
+    draw_header "DPanel 面板安装"
+    echo -e "  ${DIM}DPanel - Docker 可视化管理面板${NC}"
     echo ""
 
     pct list
     echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择 LXC 容器 ID: ${NC}"; read lxc_id
 
     check_lxc_running "$lxc_id" 1 || { pause_func; return; }
     check_docker_in_lxc "$lxc_id" || { pause_func; return; }
     
     echo ""
-    echo -e "${YELLOW}════════ 步骤 1/2: 配置镜像加速 ════════${NC}"
+    msg_step 1 2 "配置镜像加速"
 
     # 配置 Docker 镜像加速（增量更新，保留已有配置）
     local REGISTRY_MIRRORS="https://docker.1ms.run"
@@ -1268,20 +1362,20 @@ install_dpanel() {
     update_docker_registry "$lxc_id" "$REGISTRY_MIRRORS"
 
     # 重启 Docker 服务使配置生效
-    echo -e "${YELLOW}重启 Docker 服务...${NC}"
+    msg_info "重启 Docker 服务..."
     pct exec "$lxc_id" -- bash -c 'systemctl daemon-reload && systemctl restart docker' 2>/dev/null || \
     pct exec "$lxc_id" -- bash -c 'service docker restart' 2>/dev/null || true
     
     sleep 2
     
     echo ""
-    echo -e "${YELLOW}════════ 步骤 2/2: 安装 DPanel ════════${NC}"
+    msg_step 2 2 "安装 DPanel"
     
     # 获取容器 IP 用于显示
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
     
     echo ""
-    echo -e "${YELLOW}选择 DPanel 版本:${NC}"
+    msg_info "选择 DPanel 版本:"
     echo -e "  ${GREEN}[1]${NC} Lite 版 (推荐，端口 8807)"
     echo -e "  ${GREEN}[2]${NC} 标准版 (需要 80/443 端口)"
     echo -ne "${CYAN}选择 [1]: ${NC}"
@@ -1292,7 +1386,7 @@ install_dpanel() {
     
     case "$dpanel_ver" in
         1)
-            echo -e "${YELLOW}正在安装 DPanel Lite 版...${NC}"
+            spinner_start "正在安装 DPanel Lite 版..."
             pct exec "$lxc_id" -- docker run -d \
                 --name dpanel \
                 --restart=always \
@@ -1303,7 +1397,7 @@ install_dpanel() {
                 dpanel/dpanel:lite
             ;;
         2)
-            echo -e "${YELLOW}正在安装 DPanel 标准版...${NC}"
+            spinner_start "正在安装 DPanel 标准版..."
             pct exec "$lxc_id" -- docker run -d \
                 --name dpanel \
                 --restart=always \
@@ -1314,27 +1408,28 @@ install_dpanel() {
                 dpanel/dpanel:latest
             ;;
         *)
-            echo -e "${RED}无效选择${NC}"
+            msg_error "无效选择"
             pause_func
             return
             ;;
     esac
-    
+    spinner_stop
+
     if [[ $? -eq 0 ]]; then
         echo ""
-        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+        msg_ok "安装完成"
         echo ""
-        echo -e "${GREEN}访问地址:${NC}"
+        echo -e "  ${WHITE}访问地址:${NC}"
         if [[ -n "$container_ip" ]]; then
             echo -e "  ${CYAN}http://${container_ip}:8807${NC}"
         else
             echo -e "  ${CYAN}http://<容器IP>:8807${NC}"
         fi
         echo ""
-        echo -e "${YELLOW}默认账号: admin / admin${NC}"
-        echo -e "${YELLOW}首次登录请修改密码${NC}"
+        echo -e "  ${WHITE}默认账号:${NC} ${CYAN}admin / admin${NC}"
+        echo -e "  ${DIM}首次登录请修改密码${NC}"
     else
-        echo -e "${RED}安装失败${NC}"
+        msg_error "安装失败"
     fi
     
     pause_func
@@ -1343,13 +1438,13 @@ install_dpanel() {
 # 安装 Lucky 大吉
 install_lucky() {
     clear
-    echo -e "${BLUE}════════ Lucky 大吉安装 ════════${NC}"
-    echo -e "${YELLOW}Lucky - IPv4/IPv6 端口转发/反向代理/动态域名/DDNS/证书管理${NC}"
+    draw_header "Lucky 大吉安装"
+    echo -e "  ${DIM}Lucky - 端口转发/反向代理/动态域名/DDNS/证书管理${NC}"
     echo ""
 
     pct list
     echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择 LXC 容器 ID: ${NC}"; read lxc_id
 
     check_lxc_running "$lxc_id" 1 || { pause_func; return; }
     check_docker_in_lxc "$lxc_id" || { pause_func; return; }
@@ -1358,13 +1453,13 @@ install_lucky() {
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
     
     echo ""
-    echo -e "${YELLOW}════════ 配置 Lucky ════════${NC}"
+    msg_info "配置 Lucky"
     
     # 默认配置
     local lucky_port="16601"
     local lucky_conf_dir="/opt/lucky/conf"
     
-    echo -e "${YELLOW}选择网络模式:${NC}"
+    msg_info "选择网络模式:"
     echo -e "  ${GREEN}[1]${NC} Host 模式 (推荐，支持 IPv4/IPv6)"
     echo -e "      端口可在 Lucky 后台设置页面修改"
     echo -e "  ${GREEN}[2]${NC} Bridge 模式 (仅 IPv4，可能出现端口无法访问)"
@@ -1382,11 +1477,11 @@ install_lucky() {
     lucky_conf_dir=${input_conf:-$lucky_conf_dir}
     
     echo ""
-    echo -e "${YELLOW}正在安装 Lucky...${NC}"
+    spinner_start "正在安装 Lucky..."
     
     # 检查是否已存在 lucky 容器
     if pct exec "$lxc_id" -- docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^lucky$'; then
-        echo -e "${YELLOW}检测到已存在 lucky 容器，正在移除...${NC}"
+        msg_warn "检测到已存在 lucky 容器，正在移除..."
         pct exec "$lxc_id" -- docker rm -f lucky 2>/dev/null
     fi
     
@@ -1411,17 +1506,18 @@ install_lucky() {
                 gdy666/lucky:v2
             ;;
         *)
-            echo -e "${RED}无效选择${NC}"
+            msg_error "无效选择"
             pause_func
             return
             ;;
     esac
-    
+    spinner_stop
+
     if [[ $? -eq 0 ]]; then
         echo ""
-        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+        msg_ok "安装完成"
         echo ""
-        echo -e "${GREEN}访问地址:${NC}"
+        echo -e "  ${WHITE}访问地址:${NC}"
         local display_port="16601"
         if [[ "$net_mode" == "2" ]]; then
             display_port="$lucky_port"
@@ -1432,15 +1528,15 @@ install_lucky() {
             echo -e "  ${CYAN}http://<容器IP>:${display_port}${NC}"
         fi
         echo ""
-        echo -e "${YELLOW}默认账号: 666${NC}"
-        echo -e "${YELLOW}默认密码: 666${NC}"
+        echo -e "  ${WHITE}默认账号:${NC} ${CYAN}666${NC}"
+        echo -e "  ${WHITE}默认密码:${NC} ${CYAN}666${NC}"
         echo ""
-        echo -e "${RED}⚠️  重要提示:${NC}"
-        echo -e "${RED}   1. 外网访问权限在首次启动后 10 分钟内有效，请尽快登录设置${NC}"
-        echo -e "${RED}   2. 未设置安全入口或未修改默认密码将无法使用所有功能${NC}"
-        echo -e "${RED}   3. 安全入口设置后需通过 http://IP:端口/安全入口 访问${NC}"
+        msg_warn "重要提示:"
+        msg_warn "1. 外网访问权限在首次启动后 10 分钟内有效，请尽快登录设置"
+        msg_warn "2. 未设置安全入口或未修改默认密码将无法使用所有功能"
+        msg_warn "3. 安全入口设置后需通过 http://IP:端口/安全入口 访问"
         echo ""
-        echo -e "${CYAN}配置目录: ${lucky_conf_dir}${NC}"
+        echo -e "  ${WHITE}配置目录:${NC} ${CYAN}${lucky_conf_dir}${NC}"
         echo -e "${CYAN}容器内路径: /goodluck${NC}"
         if [[ "$net_mode" == "1" ]]; then
             echo -e "${CYAN}网络模式: Host (端口可在 Lucky 后台修改)${NC}"
@@ -1448,7 +1544,7 @@ install_lucky() {
             echo -e "${CYAN}网络模式: Bridge (端口映射 ${lucky_port}:16601)${NC}"
         fi
     else
-        echo -e "${RED}安装失败${NC}"
+        msg_error "安装失败"
     fi
     
     pause_func
@@ -1456,13 +1552,12 @@ install_lucky() {
 
 install_openclaw() {
     clear
-    echo -e "${BLUE}════════ OpenClaw 安装 ════════${NC}"
-    echo -e "${YELLOW}OpenClaw - 个人 AI 助手，支持多种消息平台${NC}"
-    echo -e "${CYAN}支持 WhatsApp, Telegram, Slack, Discord 等 20+ 消息平台${NC}"
+    draw_header "OpenClaw 安装"
+    echo -e "  ${DIM}OpenClaw - 个人 AI 助手，支持 20+ 消息平台${NC}"
     echo ""
     
     # 选择安装方式
-    echo -e "${YELLOW}选择安装方式:${NC}"
+    msg_info "选择安装方式:"
     echo -e "  ${GREEN}[1]${NC} 原生安装 (推荐，直接在容器内运行)"
     echo -e "  ${GREEN}[2]${NC} Docker 安装 (使用 Docker Compose)"
     echo -ne "${CYAN}选择 [1]: ${NC}"
@@ -1479,12 +1574,12 @@ install_openclaw() {
 # OpenClaw 原生安装 (推荐方式)
 install_openclaw_native() {
     clear
-    echo -e "${BLUE}════════ OpenClaw 原生安装 ════════${NC}"
+    draw_header "OpenClaw 原生安装"
     echo ""
 
     pct list
     echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择 LXC 容器 ID: ${NC}"; read lxc_id
 
     check_lxc_running "$lxc_id" 1 || { pause_func; return; }
 
@@ -1492,7 +1587,7 @@ install_openclaw_native() {
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
 
     echo ""
-    echo -e "${YELLOW}════════ 配置选项 ════════${NC}"
+    msg_info "配置选项"
 
     local openclaw_port="18789"
 
@@ -1500,7 +1595,7 @@ install_openclaw_native() {
     openclaw_port=${input_port:-$openclaw_port}
 
     echo ""
-    echo -e "${YELLOW}开始安装 OpenClaw...${NC}"
+    msg_info "开始安装 OpenClaw..."
     echo ""
 
     # 设置容器 locale 避免 apt 输出 locale 警告
@@ -1554,7 +1649,7 @@ install_openclaw_native() {
 
     # 4. 通过 npm 全局安装 OpenClaw (官方推荐方式)
     echo -e "${CYAN}[4/4] 安装 OpenClaw...${NC}"
-    echo -e "${YELLOW}  这一步可能需要几分钟，请耐心等待...${NC}"
+    msg_warn "这一步可能需要几分钟，请耐心等待..."
     pct exec "$lxc_id" -- bash -lc "
         export LC_ALL=C LANG=C
         export SHARP_IGNORE_GLOBAL_LIBVIPS=1
@@ -1584,7 +1679,7 @@ install_openclaw_native() {
     "
     local install_result=$?
     if [[ $install_result -ne 0 ]]; then
-        echo -e "${RED}  ✗ OpenClaw 安装失败${NC}"
+        msg_error "OpenClaw 安装失败"
         pause_func
         return
     fi
@@ -1601,7 +1696,7 @@ install_openclaw_native() {
 
     # 运行 onboard 引导向导 (配置 API 密钥、生成 token、安装守护进程)
     echo -e "${CYAN}运行 OpenClaw 引导向导...${NC}"
-    echo -e "${YELLOW}  注意: onboard 为交互式向导，请在容器终端中完成配置${NC}"
+    msg_warn "onboard 为交互式向导，请在容器终端中完成配置"
     echo ""
 
     # 创建 systemd 服务 (使用 openclaw CLI 命令)
@@ -1639,31 +1734,31 @@ SERVICE
     "
 
     echo ""
-    echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+    msg_ok "安装完成"
     echo ""
-    echo -e "${GREEN}访问地址:${NC}"
+    echo -e "  ${WHITE}访问地址:${NC}"
     if [[ -n "$container_ip" ]]; then
         echo -e "  ${CYAN}http://${container_ip}:${openclaw_port}${NC}"
     else
         echo -e "  ${CYAN}http://<容器IP>:${openclaw_port}${NC}"
     fi
     echo ""
-    echo -e "${YELLOW}首次使用请执行引导向导:${NC}"
+    msg_info "首次使用请执行引导向导:"
     echo -e "  ${CYAN}pct enter ${lxc_id}${NC}"
     echo -e "  ${CYAN}openclaw onboard --install-daemon${NC}"
     echo ""
-    echo -e "${YELLOW}常用命令:${NC}"
+    msg_info "常用命令:"
     echo -e "  ${CYAN}openclaw doctor${NC}              # 检查配置问题"
     echo -e "  ${CYAN}openclaw status${NC}              # Gateway 状态"
     echo -e "  ${CYAN}openclaw dashboard${NC}           # 打开控制面板"
     echo ""
-    echo -e "${YELLOW}系统服务命令:${NC}"
+    msg_info "系统服务命令:"
     echo -e "  ${CYAN}systemctl start openclaw${NC}     # 启动服务"
     echo -e "  ${CYAN}systemctl enable openclaw${NC}    # 开机自启"
     echo -e "  ${CYAN}systemctl status openclaw${NC}    # 查看状态"
     echo -e "  ${CYAN}journalctl -u openclaw -f${NC}   # 查看日志"
     echo ""
-    echo -e "${YELLOW}手动启动:${NC}"
+    msg_info "手动启动:"
     echo -e "  ${CYAN}openclaw gateway --bind lan --port ${openclaw_port}${NC}"
     echo ""
 
@@ -1671,7 +1766,7 @@ SERVICE
     echo -ne "${CYAN}是否立即运行 onboard 引导向导? [Y/n]: ${NC}"
     read run_onboard
     if [[ "$run_onboard" != "n" && "$run_onboard" != "N" ]]; then
-        echo -e "${YELLOW}正在进入容器运行 onboard，请在容器内完成配置...${NC}"
+        msg_info "正在进入容器运行 onboard，请在容器内完成配置..."
         pct exec "$lxc_id" -- bash -lc "openclaw onboard --install-daemon"
     fi
 
@@ -1681,12 +1776,12 @@ SERVICE
 # OpenClaw Docker 安装
 install_openclaw_docker() {
     clear
-    echo -e "${BLUE}════════ OpenClaw Docker 安装 ════════${NC}"
+    draw_header "OpenClaw Docker 安装"
     echo ""
 
     pct list
     echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择 LXC 容器 ID: ${NC}"; read lxc_id
 
     check_lxc_running "$lxc_id" 1 || { pause_func; return; }
     check_docker_in_lxc "$lxc_id" || { pause_func; return; }
@@ -1695,7 +1790,7 @@ install_openclaw_docker() {
     local container_ip=$(pct exec "$lxc_id" -- ip -4 addr show 2>/dev/null | grep -v '127\.' | grep -oP 'inet \K[0-9.]+' | head -1)
 
     echo ""
-    echo -e "${YELLOW}════════ 配置 OpenClaw ════════${NC}"
+    msg_info "配置 OpenClaw"
 
     # 默认配置
     local openclaw_port="18789"
@@ -1713,7 +1808,7 @@ install_openclaw_docker() {
     openclaw_workspace_dir=${input_workspace:-$openclaw_workspace_dir}
 
     echo ""
-    echo -e "${YELLOW}正在安装 OpenClaw...${NC}"
+    spinner_start "正在安装 OpenClaw..."
 
     # 创建目录并设置正确的权限 (Docker 镜像以 node 用户 uid 1000 运行)
     pct exec "$lxc_id" -- bash -lc "
@@ -1723,14 +1818,14 @@ install_openclaw_docker() {
 
     # 检查是否已存在 openclaw 容器
     if pct exec "$lxc_id" -- docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^openclaw-gateway$'; then
-        echo -e "${YELLOW}检测到已存在 OpenClaw 容器，正在移除...${NC}"
+        msg_warn "检测到已存在 OpenClaw 容器，正在移除..."
         pct exec "$lxc_id" -- docker rm -f openclaw-gateway openclaw-cli 2>/dev/null
     fi
 
     # 获取 Docker Compose 命令
     local compose_cmd=$(get_compose_cmd "$lxc_id")
     if [[ -z "$compose_cmd" ]]; then
-        echo -e "${RED}错误: Docker Compose 未安装${NC}"
+        msg_error "Docker Compose 未安装"
         pause_func
         return
     fi
@@ -1818,10 +1913,11 @@ OPENCLAW_TZ=Asia/Shanghai
 EOF
 
     # 启动服务
+    spinner_stop
     echo ""
-    echo -e "${YELLOW}启动 OpenClaw 服务...${NC}"
+    msg_info "启动 OpenClaw 服务..."
     if pct exec "$lxc_id" -- bash -lc "cd '${openclaw_dir}' && $compose_cmd --env-file '${env_file}' -f '${compose_file}' up -d" 2>&1; then
-        echo -e "${GREEN}  ✓ 容器已启动${NC}"
+        msg_ok "容器已启动"
 
         # 等待服务就绪
         echo -ne "${CYAN}等待 Gateway 就绪...${NC}"
@@ -1836,40 +1932,40 @@ EOF
             wait_count=$((wait_count + 1))
         done
         if [[ $wait_count -ge 15 ]]; then
-            echo -e "${YELLOW} ⚠ 超时，请手动检查服务状态${NC}"
+            msg_warn "超时，请手动检查服务状态"
         fi
 
         echo ""
-        echo -e "${GREEN}════════ 安装完成 ════════${NC}"
+        msg_ok "安装完成"
         echo ""
-        echo -e "${GREEN}访问地址:${NC}"
+        echo -e "  ${WHITE}访问地址:${NC}"
         if [[ -n "$container_ip" ]]; then
             echo -e "  ${CYAN}http://${container_ip}:${openclaw_port}${NC}"
         else
             echo -e "  ${CYAN}http://<容器IP>:${openclaw_port}${NC}"
         fi
         echo ""
-        echo -e "${GREEN}Gateway Token:${NC}"
+        echo -e "  ${WHITE}Gateway Token:${NC}"
         echo -e "  ${YELLOW}${gateway_token}${NC}"
         echo ""
         echo -e "${YELLOW}配置目录:${NC} ${openclaw_config_dir}"
         echo -e "${YELLOW}工作目录:${NC} ${openclaw_workspace_dir}"
         echo -e "${YELLOW}Compose 文件:${NC} ${compose_file}"
         echo ""
-        echo -e "${YELLOW}首次使用请运行引导向导:${NC}"
+        msg_info "首次使用请运行引导向导:"
         echo -e "  ${CYAN}pct exec ${lxc_id} -- docker compose -f ${compose_file} run --rm openclaw-cli onboard${NC}"
         echo ""
-        echo -e "${YELLOW}常用命令:${NC}"
+        msg_info "常用命令:"
         echo -e "  ${CYAN}openclaw doctor${NC}              # 检查配置问题"
         echo -e "  ${CYAN}openclaw status${NC}              # Gateway 状态"
         echo ""
-        echo -e "${YELLOW}Docker 管理命令:${NC}"
+        msg_info "Docker 管理命令:"
         echo -e "  ${CYAN}cd ${openclaw_dir} && $compose_cmd down${NC}     # 停止服务"
         echo -e "  ${CYAN}cd ${openclaw_dir} && $compose_cmd up -d${NC}    # 启动服务"
         echo -e "  ${CYAN}cd ${openclaw_dir} && $compose_cmd logs -f${NC}  # 查看日志"
         echo ""
     else
-        echo -e "${RED}安装失败${NC}"
+        msg_error "安装失败"
     fi
 
     pause_func
@@ -1879,12 +1975,14 @@ EOF
 docker_menu() {
     while true; do
         clear
-        echo -e "${BLUE}════════ Docker 管理 ════════${NC}"
+        draw_header "Docker 管理"
         echo -e "  ${GREEN}[1]${NC} 安装 Docker (含 Docker Compose)"
         echo -e "  ${GREEN}[2]${NC} Docker 换源"
         echo -e "  ${GREEN}[3]${NC} Docker 容器管理"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
@@ -1952,29 +2050,29 @@ select_docker_container() {
         return 0
     fi
 
-    echo -e "${RED}错误: 无效的选择${NC}" >&2
+    msg_error "无效的选择"
     return 1
 }
 
 docker_container_menu() {
     clear
-    echo -e "${BLUE}════════ Docker 容器管理 ════════${NC}"
+    draw_header "Docker 容器管理"
 
     pct list
     echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择 LXC 容器 ID: ${NC}"; read lxc_id
 
     check_lxc_running "$lxc_id" 0 || { pause_func; return; }
     check_docker_in_lxc "$lxc_id" || { pause_func; return; }
     
     while true; do
         clear
-        echo -e "${BLUE}════════ Docker 容器管理 [LXC: $lxc_id] ════════${NC}"
-        
-        echo -e "${YELLOW}Docker 容器列表:${NC}"
-        pct exec "$lxc_id" -- docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null || echo "无法获取容器列表"
+        draw_header "Docker 容器管理 [LXC: $lxc_id]"
+
+        msg_info "Docker 容器列表:"
+        pct exec "$lxc_id" -- docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null || msg_error "无法获取容器列表"
         echo ""
-        
+
         echo -e "  ${GREEN}[1]${NC} 查看容器详情"
         echo -e "  ${GREEN}[2]${NC} 启动容器"
         echo -e "  ${GREEN}[3]${NC} 停止容器"
@@ -1983,8 +2081,10 @@ docker_container_menu() {
         echo -e "  ${GREEN}[6]${NC} 进入容器终端"
         echo -e "  ${GREEN}[7]${NC} 删除容器"
         echo -e "  ${GREEN}[8]${NC} 清理无用容器/镜像"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
@@ -2015,9 +2115,9 @@ docker_container_start() {
     local container_name
     container_name=$(select_docker_container "$lxc_id") || { pause_func; return; }
     if pct exec "$lxc_id" -- docker start "$container_name" 2>/dev/null; then
-        echo -e "${GREEN}容器 $container_name 已启动${NC}"
+        msg_ok "容器 $container_name 已启动"
     else
-        echo -e "${RED}启动失败${NC}"
+        msg_error "启动失败"
     fi
     pause_func
 }
@@ -2027,9 +2127,9 @@ docker_container_stop() {
     local container_name
     container_name=$(select_docker_container "$lxc_id") || { pause_func; return; }
     if pct exec "$lxc_id" -- docker stop "$container_name" 2>/dev/null; then
-        echo -e "${GREEN}容器 $container_name 已停止${NC}"
+        msg_ok "容器 $container_name 已停止"
     else
-        echo -e "${RED}停止失败${NC}"
+        msg_error "停止失败"
     fi
     pause_func
 }
@@ -2039,9 +2139,9 @@ docker_container_restart() {
     local container_name
     container_name=$(select_docker_container "$lxc_id") || { pause_func; return; }
     if pct exec "$lxc_id" -- docker restart "$container_name" 2>/dev/null; then
-        echo -e "${GREEN}容器 $container_name 已重启${NC}"
+        msg_ok "容器 $container_name 已重启"
     else
-        echo -e "${RED}重启失败${NC}"
+        msg_error "重启失败"
     fi
     pause_func
 }
@@ -2050,7 +2150,7 @@ docker_container_logs() {
     local lxc_id=$1
     local container_name
     container_name=$(select_docker_container "$lxc_id") || { pause_func; return; }
-    echo -e "${YELLOW}最近 100 行日志:${NC}"
+    msg_info "最近 100 行日志:"
     pct exec "$lxc_id" -- docker logs --tail 100 "$container_name" 2>&1
     pause_func
 }
@@ -2065,7 +2165,7 @@ docker_container_exec() {
         elif pct exec "$lxc_id" -- docker exec -it "$container_name" bash 2>/dev/null; then
             :
         else
-            echo -e "${RED}无法进入容器终端${NC}"
+            msg_error "无法进入容器终端"
         fi
     fi
     pause_func
@@ -2079,28 +2179,28 @@ docker_container_rm() {
     # 获取容器使用的镜像
     local container_image=$(pct exec "$lxc_id" -- docker inspect "$container_name" --format='{{.Config.Image}}' 2>/dev/null || echo "")
 
-    echo -e "${RED}警告: 将删除容器 $container_name${NC}"
+    msg_warn "将删除容器 $container_name"
     if [[ -n "$container_image" ]]; then
-        echo -e "${YELLOW}容器使用的镜像: $container_image${NC}"
+        msg_info "容器使用的镜像: $container_image"
     fi
     echo -ne "确认删除容器? (y/N): "; read confirm
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         if pct exec "$lxc_id" -- docker rm -f "$container_name" 2>/dev/null; then
-            echo -e "${GREEN}容器 $container_name 已删除${NC}"
+            msg_ok "容器 $container_name 已删除"
 
             # 询问是否删除镜像
             if [[ -n "$container_image" ]]; then
                 echo -ne "${CYAN}是否同时删除镜像 $container_image? (y/N): ${NC}"; read rm_image
                 if [[ "$rm_image" == "y" || "$rm_image" == "Y" ]]; then
                     if pct exec "$lxc_id" -- docker rmi "$container_image" 2>/dev/null; then
-                        echo -e "${GREEN}镜像 $container_image 已删除${NC}"
+                        msg_ok "镜像 $container_image 已删除"
                     else
-                        echo -e "${YELLOW}镜像删除失败（可能被其他容器使用）${NC}"
+                        msg_warn "镜像删除失败（可能被其他容器使用）"
                     fi
                 fi
             fi
         else
-            echo -e "${RED}删除失败${NC}"
+            msg_error "删除失败"
         fi
     fi
     pause_func
@@ -2108,33 +2208,33 @@ docker_container_rm() {
 
 docker_container_prune() {
     local lxc_id=$1
-    echo -e "${YELLOW}清理停止的容器、无用网络和镜像...${NC}"
+    msg_info "清理停止的容器、无用网络和镜像..."
     echo -ne "确认清理? (y/N): "; read confirm
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         pct exec "$lxc_id" -- docker system prune -f
-        echo -e "${GREEN}清理完成${NC}"
+        msg_ok "清理完成"
     fi
     pause_func
 }
 
 docker_change_registry() {
     clear
-    echo -e "${BLUE}════════ Docker 换源 ════════${NC}"
+    draw_header "Docker 换源"
 
     pct list
     echo ""
-    echo -ne "选择 LXC 容器 ID: "; read lxc_id
+    echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择 LXC 容器 ID: ${NC}"; read lxc_id
 
     check_lxc_running "$lxc_id" 0 || { pause_func; return; }
     check_docker_in_lxc "$lxc_id" || { pause_func; return; }
 
     echo ""
-    echo -e "${YELLOW}当前 Docker 镜像源配置:${NC}"
+    msg_info "当前 Docker 镜像源配置:"
     local CURRENT_MIRROR=$(pct exec "$lxc_id" -- cat /etc/docker/daemon.json 2>/dev/null || echo "未配置")
     echo "$CURRENT_MIRROR"
     echo ""
     
-    echo -e "${YELLOW}选择镜像源:${NC}"
+    msg_info "选择镜像源:"
     echo -e "  ${GREEN}[1]${NC} 毫秒镜像 (推荐)"
     echo -e "  ${GREEN}[2]${NC} 轩辕镜像免费版"
     echo -e "  ${GREEN}[3]${NC} 耗子面板"
@@ -2150,28 +2250,28 @@ docker_change_registry() {
     case "$registry_choice" in
         1)
             REGISTRY_MIRRORS="https://docker.1ms.run"
-            echo -e "${GREEN}已选择: 毫秒镜像${NC}"
+            msg_ok "已选择: 毫秒镜像"
             ;;
         2)
             REGISTRY_MIRRORS="https://docker.xuanyuan.me"
-            echo -e "${GREEN}已选择: 轩辕镜像免费版${NC}"
+            msg_ok "已选择: 轩辕镜像免费版"
             ;;
         3)
             REGISTRY_MIRRORS="https://hub.rat.dev"
-            echo -e "${GREEN}已选择: 耗子面板${NC}"
+            msg_ok "已选择: 耗子面板"
             ;;
         4)
             REGISTRY_MIRRORS="https://docker.mirrors.ustc.edu.cn"
-            echo -e "${GREEN}已选择: 中科大镜像${NC}"
+            msg_ok "已选择: 中科大镜像"
             ;;
         5)
             REGISTRY_MIRRORS="https://docker.mirrors.aliyun.com"
-            echo -e "${GREEN}已选择: 阿里云镜像${NC}"
+            msg_ok "已选择: 阿里云镜像"
             ;;
         6)
             echo -ne "请输入镜像源地址: "; read REGISTRY_MIRRORS
             if [[ -z "$REGISTRY_MIRRORS" ]]; then
-                echo -e "${RED}错误: 请输入镜像源地址${NC}"
+                msg_error "请输入镜像源地址"
                 pause_func
                 return
             fi
@@ -2180,67 +2280,67 @@ docker_change_registry() {
             return
             ;;
         *)
-            echo -e "${RED}无效选择${NC}"
+            msg_error "无效选择"
             pause_func
             return
             ;;
     esac
-    
+
     echo ""
-    echo -e "${YELLOW}正在配置 Docker 镜像源...${NC}"
+    msg_info "正在配置 Docker 镜像源..."
 
     update_docker_registry "$lxc_id" "$REGISTRY_MIRRORS"
 
-    echo -e "${YELLOW}验证配置文件...${NC}"
+    msg_info "验证配置文件..."
     local CONFIG_CONTENT=$(pct exec "$lxc_id" -- cat /etc/docker/daemon.json 2>/dev/null)
     echo "$CONFIG_CONTENT"
     
     if ! echo "$CONFIG_CONTENT" | grep -q "registry-mirrors"; then
-        echo -e "${RED}配置文件写入失败${NC}"
+        msg_error "配置文件写入失败"
         pause_func
         return
     fi
     
     echo ""
-    echo -e "${YELLOW}重启 Docker 服务...${NC}"
+    msg_info "重启 Docker 服务..."
     pct exec "$lxc_id" -- bash -lc 'systemctl daemon-reload 2>/dev/null || true'
     pct exec "$lxc_id" -- bash -lc 'systemctl restart docker 2>/dev/null || service docker restart 2>/dev/null || true'
     
     sleep 3
     
     echo ""
-    echo -e "${YELLOW}检查 Docker 服务状态...${NC}"
+    msg_info "检查 Docker 服务状态..."
     if pct exec "$lxc_id" -- bash -lc 'systemctl is-active docker &>/dev/null' 2>/dev/null || \
        pct exec "$lxc_id" -- bash -lc 'service docker status &>/dev/null' 2>/dev/null; then
-        echo -e "${GREEN}Docker 服务运行正常${NC}"
+        msg_ok "Docker 服务运行正常"
     else
-        echo -e "${RED}Docker 服务异常，请检查日志${NC}"
+        msg_error "Docker 服务异常，请检查日志"
         pct exec "$lxc_id" -- journalctl -u docker --no-pager -n 10 2>/dev/null || true
         pause_func
         return
     fi
     
     echo ""
-    echo -e "${YELLOW}验证镜像源是否生效...${NC}"
+    msg_info "验证镜像源是否生效..."
     local DOCKER_INFO=$(pct exec "$lxc_id" -- docker info 2>/dev/null | grep -A 5 "Registry Mirrors" || echo "")
     if [[ -n "$DOCKER_INFO" ]]; then
-        echo -e "${GREEN}镜像源配置生效:${NC}"
+        msg_ok "镜像源配置生效:"
         echo "$DOCKER_INFO"
     else
-        echo -e "${YELLOW}无法通过 docker info 确认，但配置文件已写入${NC}"
+        msg_warn "无法通过 docker info 确认，但配置文件已写入"
     fi
     
     echo ""
-    echo -e "${YELLOW}测试拉取镜像 (alpine)...${NC}"
+    msg_info "测试拉取镜像 (alpine)..."
     if pct exec "$lxc_id" -- docker pull alpine:latest 2>&1 | tail -3; then
         echo ""
-        echo -e "${GREEN}Docker 镜像源配置成功！${NC}"
-        echo -e "${YELLOW}清理测试镜像...${NC}"
+        msg_ok "Docker 镜像源配置成功！"
+        msg_info "清理测试镜像..."
         pct exec "$lxc_id" -- docker rmi alpine:latest 2>/dev/null || true
         pct exec "$lxc_id" -- docker image prune -f 2>/dev/null || true
-        echo -e "${GREEN}测试数据已清理${NC}"
+        msg_ok "测试数据已清理"
     else
-        echo -e "${YELLOW}测试拉取失败，请检查网络或尝试其他镜像源${NC}"
+        msg_warn "测试拉取失败，请检查网络或尝试其他镜像源"
     fi
     
     pause_func
@@ -2250,7 +2350,7 @@ docker_change_registry() {
 system_menu() {
     while true; do
         clear
-        echo -e "${BLUE}════════ 系统管理 ════════${NC}"
+        draw_header "系统管理"
         echo -e "  ${GREEN}[1]${NC} 系统状态"
         echo -e "  ${GREEN}[2]${NC} 系统更新"
         echo -e "  ${GREEN}[3]${NC} 清理系统"
@@ -2260,19 +2360,21 @@ system_menu() {
         echo -e "  ${GREEN}[7]${NC} 系统日志"
         echo -e "  ${GREEN}[8]${NC} 修复 Docker 源"
         echo -e "  ${GREEN}[9]${NC} 屏蔽订阅提示"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
         case "$c" in
             1)
-                echo -e "${BLUE}=== 系统状态 ===${NC}"
-                echo "主机: $(hostname) | PVE: $(pveversion | grep -oP 'pve-manager/\K[0-9.]+')"
-                echo "内核: $(uname -r)"
-                echo "CPU: $(nproc) 核 | 内存: $(free -h | awk 'NR==2{print $3"/"$2}')"
-                echo "磁盘: $(df -h / | awk 'NR==2{print $3"/"$2"("$5")"}')"
-                echo "运行中: VM $(qm list 2>/dev/null | grep running | wc -l) | LXC $(pct list 2>/dev/null | grep running | wc -l)"
+                draw_header "系统状态"
+                echo -e "  ${WHITE}主机:${NC} ${CYAN}$(hostname)${NC} │ ${WHITE}PVE:${NC} ${CYAN}$(pveversion | grep -oP 'pve-manager/\K[0-9.]+')${NC}"
+                echo -e "  ${WHITE}内核:${NC} ${CYAN}$(uname -r)${NC}"
+                echo -e "  ${WHITE}CPU:${NC} ${CYAN}$(nproc) 核${NC} │ ${WHITE}内存:${NC} ${CYAN}$(free -h | awk 'NR==2{print $3"/"$2}')${NC}"
+                echo -e "  ${WHITE}磁盘:${NC} ${CYAN}$(df -h / | awk 'NR==2{print $3"/"$2"("$5")"}')${NC}"
+                echo -e "  ${WHITE}运行中:${NC} ${CYAN}VM $(qm list 2>/dev/null | grep running | wc -l)${NC} │ ${CYAN}LXC $(pct list 2>/dev/null | grep running | wc -l)${NC}"
                 pause_func
                 ;;
             2)
@@ -2283,7 +2385,7 @@ system_menu() {
             3)
                 clear
                 echo -e "${BLUE}═══ 系统清理 ═══${NC}"
-                echo -e "${YELLOW}清理项目:${NC}"
+                msg_info "清理项目:"
                 echo -e "  ${GREEN}[1]${NC} 清理 apt 缓存"
                 echo -e "  ${GREEN}[2]${NC} 清理旧内核"
                 echo -e "  ${GREEN}[3]${NC} 清理临时文件"
@@ -2295,60 +2397,60 @@ system_menu() {
                 
                 case "$choice" in
                     1)
-                        echo -e "${YELLOW}清理 apt 缓存...${NC}"
+                        msg_info "清理 apt 缓存..."
                         apt clean && apt autoclean
-                        echo -e "${GREEN}apt 缓存已清理${NC}"
+                        msg_ok "apt 缓存已清理"
                         ;;
                     2)
-                        echo -e "${YELLOW}清理旧内核...${NC}"
+                        msg_info "清理旧内核..."
                         local current_kernel=$(uname -r)
                         local removable_kernels=$(dpkg -l 2>/dev/null | grep -E '^\w+ (pve-kernel|proxmox-kernel|linux-image)' | awk '{print $2, $3}' | grep -v "$current_kernel" || true)
                         if [[ -z "$removable_kernels" ]]; then
-                            echo -e "${GREEN}没有可清理的旧内核${NC}"
+                            msg_ok "没有可清理的旧内核"
                         else
                             echo -e "${YELLOW}当前内核: ${GREEN}$current_kernel${NC}"
-                            echo -e "${YELLOW}将清理以下内核:${NC}"
+                            msg_info "将清理以下内核:"
                             echo "$removable_kernels" | while read line; do echo -e "  ${RED}•${NC} $line"; done
                             echo ""
                             echo -ne "确认清理? (y/N): "; read kernel_confirm
                             if [[ "$kernel_confirm" == "y" || "$kernel_confirm" == "Y" ]]; then
                                 apt autoremove -y --purge 'pve-kernel-*' 'proxmox-kernel-*' 'linux-image-*' 2>/dev/null
                                 update-grub 2>/dev/null
-                                echo -e "${GREEN}旧内核已清理${NC}"
+                                msg_ok "旧内核已清理"
                             else
-                                echo -e "${YELLOW}已取消${NC}"
+                                msg_warn "已取消"
                             fi
                         fi
                         ;;
                     3)
-                        echo -e "${YELLOW}清理临时文件...${NC}"
+                        msg_info "清理临时文件..."
                         rm -rf /tmp/* 2>/dev/null
-                        echo -e "${GREEN}临时文件已清理${NC}"
+                        msg_ok "临时文件已清理"
                         ;;
                     4)
-                        echo -e "${YELLOW}执行完整清理...${NC}"
+                        msg_info "执行完整清理..."
                         apt clean && apt autoclean
                         apt autoremove -y
                         rm -rf /tmp/* 2>/dev/null
-                        echo -e "${GREEN}系统清理完成${NC}"
+                        msg_ok "系统清理完成"
                         ;;
                     0)
                         ;;
                     *)
-                        echo -e "${RED}无效选择${NC}"
+                        msg_error "无效选择"
                         ;;
                 esac
                 pause_func
                 ;;
             4)
                 echo -e "${BLUE}=== 网络信息 ===${NC}"
-                echo -e "${YELLOW}网络接口:${NC}"
+                msg_info "网络接口:"
                 ip -br addr
-                echo -e "${YELLOW}网桥:${NC}"
+                msg_info "网桥:"
                 brctl show 2>/dev/null || bridge link show
-                echo -e "${YELLOW}路由:${NC}"
+                msg_info "路由:"
                 ip route
-                echo -e "${YELLOW}DNS:${NC}"
+                msg_info "DNS:"
                 cat /etc/resolv.conf
                 pause_func
                 ;;
@@ -2356,7 +2458,7 @@ system_menu() {
                 echo -e "${BLUE}=== 存储信息 ===${NC}"
                 pvesm status
                 echo ""
-                echo -e "${YELLOW}存储使用详情:${NC}"
+                msg_info "存储使用详情:"
                 df -h | grep -E "(Filesystem|/dev/)"
                 pause_func
                 ;;
@@ -2410,9 +2512,9 @@ block_subscription_notice() {
         echo ""
         
         if [[ -f "$backup_file" ]]; then
-            echo -e "${GREEN}当前状态: 已屏蔽${NC}"
+            msg_ok "当前状态: 已屏蔽"
         else
-            echo -e "${YELLOW}当前状态: 未屏蔽${NC}"
+            msg_warn "当前状态: 未屏蔽"
         fi
         echo ""
         echo -e "${CYAN}[1]${NC} 屏蔽订阅提示"
@@ -2425,11 +2527,11 @@ block_subscription_notice() {
         case "$choice" in
             1)
                 if [[ -f "$backup_file" ]]; then
-                    echo -e "${YELLOW}订阅提示已经被屏蔽${NC}"
+                    msg_warn "订阅提示已经被屏蔽"
                 else
-                    echo -e "${YELLOW}正在屏蔽订阅提示...${NC}"
+                    msg_info "正在屏蔽订阅提示..."
                     if [[ ! -f "$js_file" ]]; then
-                        echo -e "${RED}错误: 文件不存在 $js_file${NC}"
+                        msg_error "文件不存在 $js_file"
                         pause_func
                         continue
                     fi
@@ -2441,14 +2543,14 @@ block_subscription_notice() {
                     if grep -q "res\.data\.status\.toLowerCase() !== 'active'" "$js_file" 2>/dev/null; then
                         sed -i "s/res\.data\.status\.toLowerCase() !== 'active'/res.data.status.toLowerCase() === 'active'/g" "$js_file"
                         modified=true
-                        echo -e "${GREEN}策略A生效: 修改了判断逻辑${NC}"
+                        msg_ok "策略A生效: 修改了判断逻辑"
                     fi
                     
                     # 策略B: 匹配 !== 'active' 通用模式
                     if ! $modified && grep -q "!== 'active'" "$js_file" 2>/dev/null; then
                         sed -i "s/!== 'active'/=== 'active'/g" "$js_file"
                         modified=true
-                        echo -e "${GREEN}策略B生效: 修改了判断逻辑${NC}"
+                        msg_ok "策略B生效: 修改了判断逻辑"
                     fi
                     
                     # 策略C: 使用 Perl 多行匹配 Ext.Msg.show (兜底)
@@ -2456,17 +2558,17 @@ block_subscription_notice() {
                         if perl -i -0777 -pe 's/(Ext\.Msg\.show\(\{[\s\S]*?title: gettext\('"'"'No valid sub)/void({ \/\/\1/g' "$js_file" 2>/dev/null; then
                             if ! grep -q "Ext.Msg.show({.*No valid sub" "$js_file" 2>/dev/null; then
                                 modified=true
-                                echo -e "${GREEN}策略C生效: 屏蔽了弹窗函数${NC}"
+                                msg_ok "策略C生效: 屏蔽了弹窗函数"
                             fi
                         fi
                     fi
                     
                     if $modified; then
                         systemctl restart pveproxy.service
-                        echo -e "${GREEN}已屏蔽订阅提示${NC}"
-                        echo -e "${YELLOW}请刷新浏览器或重新登录 PVE Web${NC}"
+                        msg_ok "已屏蔽订阅提示"
+                        msg_warn "请刷新浏览器或重新登录 PVE Web"
                     else
-                        echo -e "${RED}未找到订阅检查代码，PVE 版本可能已更新${NC}"
+                        msg_error "未找到订阅检查代码，PVE 版本可能已更新"
                         rm -f "$backup_file"
                     fi
                 fi
@@ -2474,19 +2576,19 @@ block_subscription_notice() {
                 ;;
             2)
                 if [[ -f "$backup_file" ]]; then
-                    echo -e "${YELLOW}正在恢复订阅提示...${NC}"
+                    msg_info "正在恢复订阅提示..."
                     mv "$backup_file" "$js_file"
                     systemctl restart pveproxy.service
-                    echo -e "${GREEN}已恢复订阅提示${NC}"
+                    msg_ok "已恢复订阅提示"
                 else
-                    echo -e "${YELLOW}订阅提示未被屏蔽（无备份文件）${NC}"
+                    msg_warn "订阅提示未被屏蔽（无备份文件）"
                 fi
                 pause_func
                 ;;
             0)
                 return ;;
             *)
-                echo -e "${RED}无效选择${NC}"
+                msg_error "无效选择"
                 ;;
         esac
     done
@@ -2496,31 +2598,33 @@ block_subscription_notice() {
 kernel_management() {
     while true; do
         clear
-        echo -e "${BLUE}════════ 内核管理 ════════${NC}"
-        echo -e "${YELLOW}当前内核:${NC} $(uname -r)"
+        draw_header "内核管理"
+        echo -e "  ${WHITE}当前内核:${NC} ${CYAN}$(uname -r)${NC}"
         echo ""
-        echo -e "${YELLOW}已安装内核:${NC}"
-        dpkg -l 2>/dev/null | grep -E "pve-kernel|proxmox-kernel" | awk '{printf "  %s (%s)\n", $2, $3}' || echo "  无"
+        echo -e "  ${WHITE}已安装内核:${NC}"
+        dpkg -l 2>/dev/null | grep -E "pve-kernel|proxmox-kernel" | awk '{printf "    %s (%s)\n", $2, $3}' || echo "    无"
         echo ""
-        echo -e "${GREEN}[1]${NC} 查看可用内核"
-        echo -e "${GREEN}[2]${NC} 安装新内核"
-        echo -e "${GREEN}[3]${NC} 设置默认启动内核"
-        echo -e "${GREEN}[4]${NC} 清理旧内核"
-        echo -e "${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e "  ${GREEN}[1]${NC} 查看可用内核"
+        echo -e "  ${GREEN}[2]${NC} 安装新内核"
+        echo -e "  ${GREEN}[3]${NC} 设置默认启动内核"
+        echo -e "  ${GREEN}[4]${NC} 清理旧内核"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read k
         echo
         
         case "$k" in
             1)
-                echo -e "${YELLOW}正在获取可用内核列表...${NC}"
+                msg_info "正在获取可用内核列表..."
                 local kernel_url="https://mirrors.aliyun.com/proxmox/debian/pve/dists/trixie/pve-no-subscription/binary-amd64/Packages"
                 local kernels=$(curl -s "$kernel_url" 2>/dev/null | grep -E '^Package: (pve-kernel|proxmox-kernel)' | awk '{print $2}' | sort -V | tail -10)
                 if [[ -n "$kernels" ]]; then
                     echo -e "${CYAN}可用内核 (最近10个):${NC}"
                     echo "$kernels" | while read line; do echo -e "  ${GREEN}•${NC} $line"; done
                 else
-                    echo -e "${RED}获取失败，请检查网络${NC}"
+                    msg_error "获取失败，请检查网络"
                 fi
                 ;;
             2)
@@ -2529,14 +2633,14 @@ kernel_management() {
                     if [[ ! "$kernel_ver" =~ ^proxmox-kernel ]]; then
                         kernel_ver="proxmox-kernel-$kernel_ver"
                     fi
-                    echo -e "${YELLOW}正在安装 $kernel_ver...${NC}"
+                    msg_info "正在安装 $kernel_ver..."
                     apt update
                     if apt install -y "$kernel_ver"; then
-                        echo -e "${GREEN}安装成功${NC}"
+                        msg_ok "安装成功"
                         update-grub
-                        echo -e "${YELLOW}建议重启系统应用新内核${NC}"
+                        msg_warn "建议重启系统应用新内核"
                     else
-                        echo -e "${RED}安装失败${NC}"
+                        msg_error "安装失败"
                     fi
                 fi
                 ;;
@@ -2544,31 +2648,31 @@ kernel_management() {
                 read -p "请输入默认内核版本 (如 6.8.8-2-pve): " kernel_ver
                 if [[ -n "$kernel_ver" ]]; then
                     if grub-set-default "Advanced options for Proxmox VE>Proxmox VE, with Linux $kernel_ver" 2>/dev/null; then
-                        echo -e "${GREEN}设置成功${NC}"
+                        msg_ok "设置成功"
                         update-grub
                     else
-                        echo -e "${RED}设置失败，请检查内核版本${NC}"
+                        msg_error "设置失败，请检查内核版本"
                     fi
                 fi
                 ;;
             4)
-                echo -e "${YELLOW}清理旧内核 (保留当前内核)...${NC}"
+                msg_info "清理旧内核 (保留当前内核)..."
                 local current_kern=$(uname -r)
                 local old_kernels=$(dpkg -l 2>/dev/null | grep -E '^\w+ (pve-kernel|proxmox-kernel)' | awk '{print $2, $3}' | grep -v "$current_kern" || true)
                 if [[ -z "$old_kernels" ]]; then
-                    echo -e "${GREEN}没有可清理的旧内核${NC}"
+                    msg_ok "没有可清理的旧内核"
                 else
                     echo -e "${YELLOW}当前内核: ${GREEN}$current_kern${NC}"
-                    echo -e "${YELLOW}将清理以下内核:${NC}"
+                    msg_info "将清理以下内核:"
                     echo "$old_kernels" | while read line; do echo -e "  ${RED}•${NC} $line"; done
                     echo ""
                     echo -ne "确认清理? (y/N): "; read kern_confirm
                     if [[ "$kern_confirm" == "y" || "$kern_confirm" == "Y" ]]; then
                         apt autoremove -y --purge 'pve-kernel-*' 'proxmox-kernel-*' 2>/dev/null
                         update-grub
-                        echo -e "${GREEN}清理完成${NC}"
+                        msg_ok "清理完成"
                     else
-                        echo -e "${YELLOW}已取消${NC}"
+                        msg_warn "已取消"
                     fi
                 fi
                 ;;
@@ -2582,9 +2686,9 @@ kernel_management() {
 fix_docker_source() {
     clear
     echo -e "${BLUE}═══ 修复 Docker 源 ═══${NC}"
-    echo -e "${YELLOW}此功能用于修复 Docker CE 源错误${NC}"
+    msg_info "此功能用于修复 Docker CE 源错误"
     echo ""
-    echo -e "${YELLOW}当前 Docker 源配置:${NC}"
+    msg_info "当前 Docker 源配置:"
     ls -la /etc/apt/sources.list.d/ | grep -i docker 2>/dev/null || echo "无 Docker 源配置"
     echo ""
     echo -e "${CYAN}[1]${NC} 移除 Docker CE 源 (使用系统自带 docker.io)"
@@ -2604,52 +2708,52 @@ fix_docker_source() {
 
     case "$fix_choice" in
         1)
-            echo -e "${YELLOW}移除 Docker CE 源...${NC}"
+            msg_info "移除 Docker CE 源..."
             rm -f /etc/apt/sources.list.d/docker*.list 2>/dev/null
             rm -f /etc/apt/sources.list.d/*.docker* 2>/dev/null
             rm -f /etc/apt/keyrings/docker.gpg 2>/dev/null
-            echo -e "${GREEN}已移除 Docker CE 源${NC}"
-            echo -e "${GREEN}现在可以使用系统自带的 docker.io${NC}"
+            msg_ok "已移除 Docker CE 源"
+            msg_ok "现在可以使用系统自带的 docker.io"
             apt update
             pause_func
             ;;
         2)
-            echo -e "${YELLOW}添加 Docker 官方源...${NC}"
+            msg_info "添加 Docker 官方源..."
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
             curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${docker_codename} stable" > /etc/apt/sources.list.d/docker.list
-            echo -e "${GREEN}Docker 官方源添加完成 (Debian ${docker_codename})${NC}"
+            msg_ok "Docker 官方源添加完成 (Debian ${docker_codename})"
             apt update
             pause_func
             ;;
         3)
-            echo -e "${YELLOW}添加阿里云 Docker 源...${NC}"
+            msg_info "添加阿里云 Docker 源..."
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
             curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/debian ${docker_codename} stable" > /etc/apt/sources.list.d/docker.list
-            echo -e "${GREEN}阿里云 Docker 源添加完成 (Debian ${docker_codename})${NC}"
+            msg_ok "阿里云 Docker 源添加完成 (Debian ${docker_codename})"
             apt update
             pause_func
             ;;
         4)
-            echo -e "${YELLOW}添加清华 Docker 源...${NC}"
+            msg_info "添加清华 Docker 源..."
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
             curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian ${docker_codename} stable" > /etc/apt/sources.list.d/docker.list
-            echo -e "${GREEN}清华 Docker 源添加完成 (Debian ${docker_codename})${NC}"
+            msg_ok "清华 Docker 源添加完成 (Debian ${docker_codename})"
             apt update
             pause_func
             ;;
         5)
-            echo -e "${YELLOW}添加中科大 Docker 源...${NC}"
+            msg_info "添加中科大 Docker 源..."
             apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
             mkdir -p /etc/apt/keyrings
             curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.ustc.edu.cn/docker-ce/linux/debian ${docker_codename} stable" > /etc/apt/sources.list.d/docker.list
-            echo -e "${GREEN}中科大 Docker 源添加完成 (Debian ${docker_codename})${NC}"
+            msg_ok "中科大 Docker 源添加完成 (Debian ${docker_codename})"
             apt update
             pause_func
             ;;
@@ -2669,16 +2773,18 @@ change_source() {
     
     while true; do
         clear
-        echo -e "${BLUE}════════ 换源工具 ════════${NC}"
-        echo -e "  ${GREEN}[1]${NC} 中科大源 (推荐)"
+        draw_header "换源工具"
+        echo -e "  ${GREEN}[1]${NC} 中科大源 ${DIM}(推荐)${NC}"
         echo -e "  ${GREEN}[2]${NC} 清华源"
         echo -e "  ${GREEN}[3]${NC} 阿里云源"
         echo -e "  ${GREEN}[4]${NC} 华为云源"
         echo -e "  ${GREEN}[5]${NC} 南京大学源"
         echo -e "  ${GREEN}[6]${NC} 腾讯云源"
-        echo -e "  ${GREEN}[7]${NC} Ceph源配置"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e "  ${GREEN}[7]${NC} Ceph 源配置"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
@@ -2699,8 +2805,8 @@ change_source() {
                 TEST_MIRROR="mirrors.tuna.tsinghua.edu.cn"
                 ;;
             3) 
-                echo -e "${YELLOW}注意: 阿里云仅支持 Debian 系统源，不支持 PVE 源${NC}"
-                echo -e "${YELLOW}将使用阿里云 Debian 源，PVE 源保持默认${NC}"
+                msg_warn "阿里云仅支持 Debian 系统源，不支持 PVE 源"
+                msg_warn "将使用阿里云 Debian 源，PVE 源保持默认"
                 DEBIAN_MIRROR="https://mirrors.aliyun.com/debian"
                 PVE_MIRROR=""
                 CT_MIRROR=""
@@ -2737,12 +2843,12 @@ change_source() {
         esac
         
         if ! ping -c 1 "$TEST_MIRROR" &> /dev/null 2>&1; then
-            echo -e "${RED}网络连接失败，无法访问 $TEST_MIRROR${NC}"
+            msg_error "网络连接失败，无法访问 $TEST_MIRROR"
             pause_func
             continue
         fi
-        
-        echo -e "${YELLOW}安全更新源选择:${NC}"
+
+        msg_info "安全更新源选择:"
         echo -e "  [1] 使用镜像站安全源 (速度快)"
         echo -e "  [2] 使用官方安全源 (更新及时)"
         read -p "请选择 [1-2] (默认: 1): " sec_choice
@@ -2754,11 +2860,11 @@ change_source() {
             SECURITY_MIRROR="${DEBIAN_MIRROR/debian/debian-security}"
         fi
         
-        echo -e "${YELLOW}确认换源? (y/N)${NC}"
+        msg_warn "确认换源? (y/N)"
         read confirm
         [[ "$confirm" != "y" && "$confirm" != "Y" ]] && continue
         
-        echo -e "${YELLOW}正在换源，请稍候...${NC}"
+        spinner_start "正在换源，请稍候..."
         
         backup_file "/etc/apt/sources.list.d/debian.sources"
         [[ -f "/etc/apt/sources.list.d/pve-enterprise.sources" ]] && backup_file "/etc/apt/sources.list.d/pve-enterprise.sources"
@@ -2810,14 +2916,15 @@ EOF
                 sed -i "s|http://download.proxmox.com|$CT_MIRROR|g" /usr/share/perl5/PVE/APLInfo.pm
             fi
         fi
-        
-        echo -e "${GREEN}换源完成${NC}"
+
+        spinner_stop
+        msg_ok "换源完成"
         if [[ -n "$PVE_MIRROR" && -n "$CT_MIRROR" ]]; then
-            echo -e "${YELLOW}已更换: Debian源 / PVE源 / CT模板源${NC}"
+            msg_info "已更换: Debian源 / PVE源 / CT模板源"
         elif [[ -n "$PVE_MIRROR" ]]; then
-            echo -e "${YELLOW}已更换: Debian源 / PVE源${NC}"
+            msg_info "已更换: Debian源 / PVE源"
         else
-            echo -e "${YELLOW}已更换: Debian源 (PVE源保持默认)${NC}"
+            msg_info "已更换: Debian源 (PVE源保持默认)"
         fi
         apt update
         pause_func
@@ -2826,7 +2933,7 @@ EOF
 
 change_ceph_source() {
     if ! command -v ceph &>/dev/null; then
-        echo -e "${YELLOW}未检测到 Ceph 安装，跳过 Ceph 源配置${NC}"
+        msg_warn "未检测到 Ceph 安装，跳过 Ceph 源配置"
         pause_func
         return 0
     fi
@@ -2840,8 +2947,8 @@ change_ceph_source() {
     
     while true; do
         clear
-        echo -e "${BLUE}════════ Ceph 源配置 ════════${NC}"
-        echo -e "检测到 Ceph 版本: ${GREEN}$CEPH_CODENAME${NC}"
+        draw_header "Ceph 源配置"
+        echo -e "  检测到 Ceph 版本: ${GREEN}$CEPH_CODENAME${NC}"
         echo ""
         echo -e "  ${GREEN}[1]${NC} 中科大 Ceph 源"
         echo -e "  ${GREEN}[2]${NC} 清华 Ceph 源"
@@ -2849,8 +2956,10 @@ change_ceph_source() {
         echo -e "  ${GREEN}[4]${NC} 南京大学 Ceph 源"
         echo -e "  ${GREEN}[5]${NC} 腾讯云 Ceph 源"
         echo -e "  ${GREEN}[6]${NC} 移除 Ceph 源 (使用默认)"
-        echo -e "  ${GREEN}[0]${NC} 返回"
-        echo -ne "${CYAN}选择: ${NC}"
+        echo -e ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        draw_separator
+        echo -ne "  ${BRIGHT_CYAN}➤${NC} ${CYAN}选择: ${NC}"
         read c
         echo
         
@@ -2879,12 +2988,12 @@ change_ceph_source() {
                 if [[ -f "/etc/apt/sources.list.d/ceph.sources" ]]; then
                     backup_file "/etc/apt/sources.list.d/ceph.sources"
                     rm -f /etc/apt/sources.list.d/ceph.sources
-                    echo -e "${GREEN}Ceph 源已移除${NC}"
+                    msg_ok "Ceph 源已移除"
                     apt update
                     pause_func
                     return 0
                 else
-                    echo -e "${YELLOW}Ceph 源文件不存在${NC}"
+                    msg_warn "Ceph 源文件不存在"
                     pause_func
                     return 0
                 fi
@@ -2898,12 +3007,12 @@ change_ceph_source() {
         esac
         
         if ! ping -c 1 "$TEST_MIRROR" &> /dev/null 2>&1; then
-            echo -e "${RED}网络连接失败，无法访问 $TEST_MIRROR${NC}"
+            msg_error "网络连接失败，无法访问 $TEST_MIRROR"
             pause_func
             continue
         fi
         
-        echo -e "${YELLOW}确认配置 Ceph 源? (y/N)${NC}"
+        msg_warn "确认配置 Ceph 源? (y/N)"
         read confirm
         [[ "$confirm" != "y" && "$confirm" != "Y" ]] && continue
         
@@ -2919,7 +3028,7 @@ Components: no-subscription
 Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 EOF
         
-        echo -e "${GREEN}Ceph 源配置完成${NC}"
+        msg_ok "Ceph 源配置完成"
         apt update
         pause_func
         return 0
@@ -2928,8 +3037,8 @@ EOF
 
 # 主循环
 main() {
-    echo -e "${GREEN}PVE Toolkit $VERSION 加载完成${NC}"
-    echo -e "${GREEN}PVE 版本检查通过${NC}"
+    msg_ok "PVE Toolkit $VERSION 加载完成"
+    msg_ok "PVE 版本检查通过"
     detect_env_info
     sleep 1
 
